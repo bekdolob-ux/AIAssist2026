@@ -17,9 +17,9 @@ from telegram.ext import (
 )
 
 
-# ==============================
-# API KEYS
-# ==============================
+# ==================================================
+# 🔐 ENVIRONMENT VARIABLES
+# ==================================================
 
 TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
 GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
@@ -27,27 +27,37 @@ GROQ_API_KEY = os.environ["GROQ_API_KEY"]
 OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
 
 
-# ==============================
-# MODELS
-# ==============================
+# ==================================================
+# 🤖 MODELS
+# ==================================================
 
-GEMINI_MODEL = "gemini-2.5-flash"
+GEMINI_MODEL = "gemini-3.8-flash"
+
 GROQ_MODEL = "openai/gpt-oss-120b"
+
 OPENAI_MODEL = "gpt-5-mini"
 
 
-# ==============================
-# AI CLIENTS
-# ==============================
+# ==================================================
+# 🤖 CLIENTS
+# ==================================================
 
-gemini = genai.Client(api_key=GEMINI_API_KEY)
-groq = Groq(api_key=GROQ_API_KEY)
-openai_client = OpenAI(api_key=OPENAI_API_KEY)
+gemini = genai.Client(
+    api_key=GEMINI_API_KEY
+)
+
+groq = Groq(
+    api_key=GROQ_API_KEY
+)
+
+openai_client = OpenAI(
+    api_key=OPENAI_API_KEY
+)
 
 
-# ==============================
-# SYSTEM PROMPT
-# ==============================
+# ==================================================
+# 🧠 SYSTEM PROMPT
+# ==================================================
 
 SYSTEM_PROMPT = """
 Сен күчтүү жеке AI жардамчысың.
@@ -76,73 +86,109 @@ SYSTEM_PROMPT = """
 """
 
 
-# ==============================
-# RENDER PORT SERVER
-# ==============================
+# ==================================================
+# 🌐 RENDER WEB SERVER
+# ==================================================
 
 class HealthHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
+
         self.send_response(200)
-        self.send_header("Content-Type", "text/plain")
+
+        self.send_header(
+            "Content-Type",
+            "text/plain"
+        )
+
         self.end_headers()
-        self.wfile.write(b"AIAssist2026 is running!")
+
+        self.wfile.write(
+            b"AIAssist2026 is running!"
+        )
 
     def log_message(self, format, *args):
         return
 
 
 def start_web_server():
-    port = int(os.environ.get("PORT", 10000))
+
+    port = int(
+        os.environ.get(
+            "PORT",
+            10000
+        )
+    )
 
     server = HTTPServer(
         ("0.0.0.0", port),
         HealthHandler
     )
 
-    print(f"🌐 Web server PORT: {port}")
+    print(
+        f"🌐 Web server PORT: {port}"
+    )
 
     server.serve_forever()
 
 
-# ==============================
-# LONG MESSAGE
-# ==============================
+# ==================================================
+# 📩 TELEGRAM LONG MESSAGE
+# ==================================================
 
-async def send_long_message(update: Update, text: str):
+async def send_long_message(
+    update: Update,
+    text: str
+):
 
     limit = 3900
 
     if len(text) <= limit:
-        await update.message.reply_text(text)
+
+        await update.message.reply_text(
+            text
+        )
+
         return
 
     while len(text) > limit:
 
-        cut = text.rfind("\n", 0, limit)
+        cut = text.rfind(
+            "\n",
+            0,
+            limit
+        )
 
         if cut < 1000:
             cut = limit
 
         part = text[:cut]
+
         text = text[cut:].lstrip()
 
-        await update.message.reply_text(part)
+        await update.message.reply_text(
+            part
+        )
 
         await asyncio.sleep(0.3)
 
     if text:
-        await update.message.reply_text(text)
+
+        await update.message.reply_text(
+            text
+        )
 
 
-# ==============================
-# GROQ
-# ==============================
+# ==================================================
+# 🔵 GROQ
+# ==================================================
 
 def ask_groq(text):
 
     response = groq.chat.completions.create(
+
         model=GROQ_MODEL,
+
         messages=[
             {
                 "role": "system",
@@ -153,94 +199,147 @@ def ask_groq(text):
                 "content": text
             }
         ],
+
         temperature=0.7,
+
         max_tokens=8000
     )
 
     if not response.choices:
-        raise Exception("Groq choices бош")
 
-    answer = response.choices[0].message.content
+        raise Exception(
+            "Groq choices бош"
+        )
+
+    answer = (
+        response
+        .choices[0]
+        .message
+        .content
+    )
 
     if not answer:
-        raise Exception("Groq бош жооп берди")
+
+        raise Exception(
+            "Groq бош жооп берди"
+        )
 
     return answer
 
 
-# ==============================
-# GEMINI
-# ==============================
+# ==================================================
+# 🟢 GEMINI
+# ==================================================
 
 def ask_gemini(text):
 
     response = gemini.models.generate_content(
+
         model=GEMINI_MODEL,
-        contents=SYSTEM_PROMPT + "\n\n" + text
+
+        contents=(
+            SYSTEM_PROMPT
+            + "\n\n"
+            + text
+        )
     )
 
     if not response.text:
-        raise Exception("Gemini бош жооп берди")
+
+        raise Exception(
+            "Gemini бош жооп берди"
+        )
 
     return response.text
 
 
-# ==============================
-# OPENAI
-# ==============================
+# ==================================================
+# 🟣 OPENAI
+# ==================================================
 
 def ask_openai(text):
 
-    response = openai_client.chat.completions.create(
-        model=OPENAI_MODEL,
-        messages=[
-            {
-                "role": "system",
-                "content": SYSTEM_PROMPT
-            },
-            {
-                "role": "user",
-                "content": text
-            }
-        ],
-        max_tokens=8000,
-        temperature=0.7
+    response = (
+        openai_client
+        .chat
+        .completions
+        .create(
+
+            model=OPENAI_MODEL,
+
+            messages=[
+                {
+                    "role": "system",
+                    "content": SYSTEM_PROMPT
+                },
+                {
+                    "role": "user",
+                    "content": text
+                }
+            ],
+
+            max_completion_tokens=8000
+        )
     )
 
     if not response.choices:
-        raise Exception("OpenAI choices бош")
 
-    answer = response.choices[0].message.content
+        raise Exception(
+            "OpenAI choices бош"
+        )
+
+    answer = (
+        response
+        .choices[0]
+        .message
+        .content
+    )
 
     if not answer:
-        raise Exception("OpenAI бош жооп берди")
+
+        raise Exception(
+            "OpenAI бош жооп берди"
+        )
 
     return answer
 
 
-# ==============================
-# START COMMAND
-# ==============================
+# ==================================================
+# 🚀 /START
+# ==================================================
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def start(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
 
     await update.message.reply_text(
+
         "🤖 AIAssist2026\n\n"
-        "Салам! Мен сенин жеке AI жардамчыңмын.\n\n"
+
+        "Салам! Мен сенин жеке AI "
+        "жардамчыңмын.\n\n"
+
         "🔵 Groq\n"
         "🟢 Gemini\n"
         "🟣 OpenAI\n\n"
+
         "Үч AI системасы туташкан.\n\n"
+
         "Сурооңду жаза бер.\n\n"
-        "/testapi — үч API'ни текшерүү"
+
+        "/testapi — API'лерди текшерүү"
     )
 
 
-# ==============================
-# CHAT
-# ==============================
+# ==================================================
+# 💬 CHAT
+# ==================================================
 
-async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def chat(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
 
     user_text = update.message.text
 
@@ -248,7 +347,10 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🧠 AI ойлонуп жатат..."
     )
 
-    # GROQ
+
+    # ==================================================
+    # 1️⃣ GROQ
+    # ==================================================
 
     try:
 
@@ -277,7 +379,9 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
-    # GEMINI
+    # ==================================================
+    # 2️⃣ GEMINI
+    # ==================================================
 
     try:
 
@@ -306,7 +410,9 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
-    # OPENAI
+    # ==================================================
+    # 3️⃣ OPENAI
+    # ==================================================
 
     try:
 
@@ -335,11 +441,14 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
-# ==============================
-# API TEST
-# ==============================
+# ==================================================
+# 🔍 /TESTAPI
+# ==================================================
 
-async def test_api(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def test_api(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
 
     waiting = await update.message.reply_text(
         "🔍 Үч API текшерилип жатат..."
@@ -350,7 +459,9 @@ async def test_api(update: Update, context: ContextTypes.DEFAULT_TYPE):
     openai_ok = False
 
 
+    # ==================================================
     # GROQ TEST
+    # ==================================================
 
     try:
 
@@ -361,15 +472,24 @@ async def test_api(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         groq_ok = True
 
-        print("\n🔵 GROQ TEST: OK")
+        print(
+            "\n🔵 GROQ TEST: OK"
+        )
 
     except Exception as e:
 
-        print("\n❌ GROQ TEST ERROR:")
-        print(repr(e))
+        print(
+            "\n❌ GROQ TEST ERROR:"
+        )
+
+        print(
+            repr(e)
+        )
 
 
+    # ==================================================
     # GEMINI TEST
+    # ==================================================
 
     try:
 
@@ -380,15 +500,24 @@ async def test_api(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         gemini_ok = True
 
-        print("\n🟢 GEMINI TEST: OK")
+        print(
+            "\n🟢 GEMINI TEST: OK"
+        )
 
     except Exception as e:
 
-        print("\n❌ GEMINI TEST ERROR:")
-        print(repr(e))
+        print(
+            "\n❌ GEMINI TEST ERROR:"
+        )
+
+        print(
+            repr(e)
+        )
 
 
+    # ==================================================
     # OPENAI TEST
+    # ==================================================
 
     try:
 
@@ -399,15 +528,27 @@ async def test_api(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         openai_ok = True
 
-        print("\n🟣 OPENAI TEST: OK")
+        print(
+            "\n🟣 OPENAI TEST: OK"
+        )
 
     except Exception as e:
 
-        print("\n❌ OPENAI TEST ERROR:")
-        print(repr(e))
+        print(
+            "\n❌ OPENAI TEST ERROR:"
+        )
 
+        print(
+            repr(e)
+        )
+
+
+    # ==================================================
+    # RESULT
+    # ==================================================
 
     result = (
+
         "🔍 API TEST ЖЫЙЫНТЫГЫ\n\n"
 
         f"🔵 Groq: "
@@ -420,16 +561,18 @@ async def test_api(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"{'🟢 ИШТЕДИ' if openai_ok else '🔴 ERROR'}"
     )
 
-    await waiting.edit_text(result)
+    await waiting.edit_text(
+        result
+    )
 
 
-# ==============================
-# MAIN
-# ==============================
+# ==================================================
+# 🚀 MAIN
+# ==================================================
 
 def main():
 
-    # Render web server
+    # Render health server
     web_thread = threading.Thread(
         target=start_web_server,
         daemon=True
@@ -448,16 +591,25 @@ def main():
 
 
     app.add_handler(
-        CommandHandler("start", start)
+        CommandHandler(
+            "start",
+            start
+        )
     )
 
+
     app.add_handler(
-        CommandHandler("testapi", test_api)
+        CommandHandler(
+            "testapi",
+            test_api
+        )
     )
+
 
     app.add_handler(
         MessageHandler(
-            filters.TEXT & ~filters.COMMAND,
+            filters.TEXT
+            & ~filters.COMMAND,
             chat
         )
     )
@@ -476,9 +628,10 @@ def main():
     app.run_polling()
 
 
-# ==============================
-# RUN
-# ==============================
+# ==================================================
+# ▶️ START
+# ==================================================
 
 if __name__ == "__main__":
+
     main()
