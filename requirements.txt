@@ -2,3 +2,4 @@ python-telegram-bot
 google-genai
 groq
 openai
+google-cloud-firestore
