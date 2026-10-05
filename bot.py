@@ -38,9 +38,7 @@ MEMORY_FILE = "memory.json"
 # CLIENTS
 # =========================================================
 
-groq_client = Groq(
-    api_key=GROQ_API_KEY
-)
+groq_client = Groq(api_key=GROQ_API_KEY)
 
 gemini_client = genai.Client(
     api_key=GEMINI_API_KEY
@@ -56,63 +54,44 @@ openai_client = OpenAI(
 # =========================================================
 
 def load_memory():
-
     try:
-
         if os.path.exists(MEMORY_FILE):
-
             with open(
                 MEMORY_FILE,
                 "r",
                 encoding="utf-8"
             ) as f:
-
                 return json.load(f)
-
     except Exception as e:
-
-        print(
-            "❌ Memory load error:",
-            e
-        )
+        print("❌ Memory load error:", e)
 
     return {}
 
 
 def save_memory(data):
-
     try:
-
         with open(
             MEMORY_FILE,
             "w",
             encoding="utf-8"
         ) as f:
-
             json.dump(
                 data,
                 f,
                 ensure_ascii=False,
                 indent=2
             )
-
     except Exception as e:
-
-        print(
-            "❌ Memory save error:",
-            e
-        )
+        print("❌ Memory save error:", e)
 
 
 memory = load_memory()
 
 
 def get_user_memory(user_id):
-
     user_id = str(user_id)
 
     if user_id not in memory:
-
         memory[user_id] = {
             "facts": [],
             "goals": [],
@@ -123,106 +102,49 @@ def get_user_memory(user_id):
 
     user = memory[user_id]
 
-    user.setdefault(
-        "facts",
-        []
-    )
-
-    user.setdefault(
-        "goals",
-        []
-    )
-
-    user.setdefault(
-        "knowledge",
-        []
-    )
-
-    user.setdefault(
-        "experience",
-        []
-    )
-
-    user.setdefault(
-        "history",
-        []
-    )
+    user.setdefault("facts", [])
+    user.setdefault("goals", [])
+    user.setdefault("knowledge", [])
+    user.setdefault("experience", [])
+    user.setdefault("history", [])
 
     return user
 
 
 def memory_text(user_id):
 
-    user = get_user_memory(
-        user_id
-    )
+    user = get_user_memory(user_id)
 
     result = ""
 
     if user["facts"]:
-
-        result += (
-            "\n👤 МААНИЛҮҮ МААЛЫМАТ:\n"
-        )
+        result += "\n👤 МААНИЛҮҮ МААЛЫМАТ:\n"
 
         for item in user["facts"][-30:]:
-
-            result += (
-                "- "
-                + item
-                + "\n"
-            )
+            result += "- " + item + "\n"
 
     if user["goals"]:
-
-        result += (
-            "\n🎯 МАКСАТТАР:\n"
-        )
+        result += "\n🎯 МАКСАТТАР:\n"
 
         for item in user["goals"][-20:]:
-
-            result += (
-                "- "
-                + item
-                + "\n"
-            )
+            result += "- " + item + "\n"
 
     if user["knowledge"]:
-
-        result += (
-            "\n📚 БИЛИМ:\n"
-        )
+        result += "\n📚 БИЛИМ:\n"
 
         for item in user["knowledge"][-20:]:
-
-            result += (
-                "- "
-                + item
-                + "\n"
-            )
+            result += "- " + item + "\n"
 
     if user["experience"]:
-
-        result += (
-            "\n📈 ТАЖРЫЙБА:\n"
-        )
+        result += "\n📈 ТАЖРЫЙБА:\n"
 
         for item in user["experience"][-20:]:
-
-            result += (
-                "- "
-                + item
-                + "\n"
-            )
+            result += "- " + item + "\n"
 
     if user["history"]:
-
-        result += (
-            "\n💬 АКЫРКЫ СҮЙЛӨШҮҮЛӨР:\n"
-        )
+        result += "\n💬 АКЫРКЫ СҮЙЛӨШҮҮЛӨР:\n"
 
         for item in user["history"][-5:]:
-
             result += (
                 "Колдонуучу: "
                 + item["user"]
@@ -245,19 +167,16 @@ def memory_text(user_id):
 SYSTEM_PROMPT = """
 Сен AIAssist2026 — колдонуучунун жеке AI жардамчысысың.
 
-Максат:
-Колдонуучуга мүмкүн болушунча пайдалуу,
-реалдуу жана практикалык жардам берүү.
+Негизги максат:
+Колдонуучуга пайдалуу, реалдуу жана практикалык жардам берүү.
 
 Memory маалыматтарын контекст катары колдон.
 
-Маанилүү эрежелер:
+Эрежелер:
 
 - Memory'де жок нерсени ойлоп таппа.
 - Белгисиз маалыматты факт катары айтпа.
 - Сандык көрсөткүчтөрдү негизсиз ойлоп чыгарба.
-- Колдонуучунун кесибин же тажрыйбасын
-  далилсиз кеңейтпе.
 - Кирешеге кепилдик бербе.
 - Кыргызстандагы реалдуу шарттарды эске ал.
 - Колдонуучунун мурдагы максаттарын жана
@@ -265,24 +184,25 @@ Memory маалыматтарын контекст катары колдон.
 - Эгер маалымат эски болушу мүмкүн болсо,
   этият колдон.
 
-Бизнес жана киреше боюнча:
+Киреше жана бизнес боюнча:
 
 - биринчи кардарды табууга көңүл бур;
 - чоң чыгымдан мурда тест кыл;
 - чыгым менен таза кирешени айырмала;
 - реалдуу кадамдарды сунушта.
 
-Жооп:
+Жооптор:
 
 - түшүнүктүү;
 - практикалык;
 - керексиз узун эмес;
-- керек болсо кадам-кадам.
+- керек болсо кадам-кадам;
+- кыргыз тилинде жооп бер.
 """
 
 
 # =========================================================
-# RESPONSE TEXT HELPERS
+# HELPERS
 # =========================================================
 
 def clean_answer(answer):
@@ -293,19 +213,14 @@ def clean_answer(answer):
     if not isinstance(answer, str):
         answer = str(answer)
 
-    answer = answer.strip()
-
-    return answer
+    return answer.strip()
 
 
 # =========================================================
 # GROQ
 # =========================================================
 
-def ask_groq(
-    user_id,
-    user_text
-):
+def ask_groq(user_id, user_text):
 
     prompt = (
         SYSTEM_PROMPT
@@ -342,37 +257,30 @@ def ask_groq(
 
         answer = ""
 
-        if (
-            response
-            and getattr(
-                response,
-                "choices",
-                None
-            )
-        ):
+        choices = getattr(
+            response,
+            "choices",
+            None
+        )
 
-            choice = response.choices[0]
+        if choices:
 
             message = getattr(
-                choice,
+                choices[0],
                 "message",
                 None
             )
 
             if message:
-
                 answer = getattr(
                     message,
                     "content",
                     ""
                 )
 
-        answer = clean_answer(
-            answer
-        )
+        answer = clean_answer(answer)
 
         if not answer:
-
             raise Exception(
                 "Groq бош жооп кайтарды"
             )
@@ -393,10 +301,7 @@ def ask_groq(
 # GEMINI
 # =========================================================
 
-def ask_gemini(
-    user_id,
-    user_text
-):
+def ask_gemini(user_id, user_text):
 
     prompt = (
         SYSTEM_PROMPT
@@ -426,7 +331,6 @@ def ask_gemini(
         )
 
         if not answer:
-
             raise Exception(
                 "Gemini бош жооп кайтарды"
             )
@@ -447,10 +351,7 @@ def ask_gemini(
 # OPENAI
 # =========================================================
 
-def ask_openai(
-    user_id,
-    user_text
-):
+def ask_openai(user_id, user_text):
 
     full_prompt = (
         SYSTEM_PROMPT
@@ -462,10 +363,14 @@ def ask_openai(
 
     try:
 
-        response = openai_client.responses.create(
-            model=OPENAI_MODEL,
-            input=full_prompt,
-            max_output_tokens=5000
+        response = (
+            openai_client
+            .responses
+            .create(
+                model=OPENAI_MODEL,
+                input=full_prompt,
+                max_output_tokens=5000
+            )
         )
 
         print(
@@ -482,7 +387,6 @@ def ask_openai(
         )
 
         if not answer:
-
             raise Exception(
                 "OpenAI бош жооп кайтарды"
             )
@@ -500,18 +404,12 @@ def ask_openai(
 
 
 # =========================================================
-# SMART ROUTER
+# SMART AI ROUTER
 # =========================================================
 
-def smart_ai_router(
-    user_id,
-    user_text
-):
+def smart_ai_router(user_id, user_text):
 
-    # =====================================================
     # GROQ
-    # =====================================================
-
     try:
 
         answer = ask_groq(
@@ -519,23 +417,17 @@ def smart_ai_router(
             user_text
         )
 
-        return (
-            "🔵 Groq",
-            answer
-        )
+        return "🔵 Groq", answer
 
     except Exception:
 
         print(
-            "➡️ Groq иштеген жок."
-            " Geminiге өтөбүз."
+            "➡️ Groq иштеген жок. "
+            "Geminiге өтөбүз."
         )
 
 
-    # =====================================================
     # GEMINI
-    # =====================================================
-
     try:
 
         answer = ask_gemini(
@@ -543,23 +435,17 @@ def smart_ai_router(
             user_text
         )
 
-        return (
-            "🟢 Gemini",
-            answer
-        )
+        return "🟢 Gemini", answer
 
     except Exception:
 
         print(
-            "➡️ Gemini иштеген жок."
-            " OpenAIге өтөбүз."
+            "➡️ Gemini иштеген жок. "
+            "OpenAIге өтөбүз."
         )
 
 
-    # =====================================================
     # OPENAI
-    # =====================================================
-
     try:
 
         answer = ask_openai(
@@ -567,10 +453,7 @@ def smart_ai_router(
             user_text
         )
 
-        return (
-            "🟣 OpenAI",
-            answer
-        )
+        return "🟣 OpenAI", answer
 
     except Exception:
 
@@ -587,7 +470,7 @@ def smart_ai_router(
 
 
 # =========================================================
-# MEMORY HISTORY
+# HISTORY
 # =========================================================
 
 def add_history(
@@ -597,56 +480,34 @@ def add_history(
     ai_name
 ):
 
-    user = get_user_memory(
-        user_id
-    )
+    user = get_user_memory(user_id)
 
     user["history"].append({
-
         "user": user_text,
-
         "assistant": answer,
-
         "ai": ai_name
     })
 
-    user["history"] = (
-        user["history"][-30:]
-    )
+    user["history"] = user["history"][-30:]
 
-    save_memory(
-        memory
-    )
+    save_memory(memory)
 
 
 # =========================================================
-# SIMPLE AUTO MEMORY
+# AUTO MEMORY
 # =========================================================
 
-def simple_auto_memory(
-    user_id,
-    user_text
-):
+def simple_auto_memory(user_id, user_text):
 
-    user = get_user_memory(
-        user_id
-    )
+    user = get_user_memory(user_id)
 
-    text = (
-        user_text
-        .lower()
-        .strip()
-    )
+    text = user_text.lower().strip()
 
-    # Суроолорду Memory'ге сактаба
+    # Суроолорду сактаба
     if "?" in user_text:
-
         return
 
-    # -----------------------------------------------------
     # NAME
-    # -----------------------------------------------------
-
     if (
         "менин атым" in text
         or "аты-жөнүм" in text
@@ -655,26 +516,15 @@ def simple_auto_memory(
         fact = user_text.strip()
 
         if fact not in user["facts"]:
-
-            user["facts"].append(
-                fact
-            )
+            user["facts"].append(fact)
 
 
-    # -----------------------------------------------------
     # GOAL
-    # -----------------------------------------------------
-
     goal_words = [
-
         "максатым",
-
         "негизги максат",
-
         "максат —",
-
         "максат -",
-
         "каалайм"
     ]
 
@@ -683,32 +533,19 @@ def simple_auto_memory(
         for word in goal_words
     ):
 
-        if (
-            user_text
-            not in user["goals"]
-        ):
+        goal = user_text.strip()
 
-            user["goals"].append(
-                user_text.strip()
-            )
+        if goal not in user["goals"]:
+            user["goals"].append(goal)
 
 
-    # -----------------------------------------------------
     # SKILLS
-    # -----------------------------------------------------
-
     skill_words = [
-
         "билем",
-
         "иштейм",
-
         "кесибим",
-
         "тажрыйбам",
-
         "тажрыйбам бар",
-
         "үйрөнгөм"
     ]
 
@@ -717,31 +554,20 @@ def simple_auto_memory(
         for word in skill_words
     ):
 
-        if (
-            user_text
-            not in user["facts"]
-        ):
+        fact = user_text.strip()
 
-            user["facts"].append(
-                user_text.strip()
-            )
+        if fact not in user["facts"]:
+            user["facts"].append(fact)
 
 
-    user["facts"] = (
-        user["facts"][-50:]
-    )
+    user["facts"] = user["facts"][-50:]
+    user["goals"] = user["goals"][-30:]
 
-    user["goals"] = (
-        user["goals"][-30:]
-    )
-
-    save_memory(
-        memory
-    )
+    save_memory(memory)
 
 
 # =========================================================
-# START
+# /START
 # =========================================================
 
 async def start(
@@ -756,7 +582,6 @@ async def start(
         "Мен сенин жеке AI жардамчыңмын.\n\n"
 
         "🤖 Smart AI Router:\n"
-
         "1️⃣ 🔵 Groq\n"
         "2️⃣ 🟢 Gemini\n"
         "3️⃣ 🟣 OpenAI\n\n"
@@ -769,7 +594,7 @@ async def start(
 
 
 # =========================================================
-# MEMORY COMMAND
+# /MEMORY
 # =========================================================
 
 async def memory_command(
@@ -777,61 +602,34 @@ async def memory_command(
     context: ContextTypes.DEFAULT_TYPE
 ):
 
-    user_id = (
-        update.effective_user.id
-    )
+    user_id = update.effective_user.id
 
-    user = get_user_memory(
-        user_id
-    )
+    user = get_user_memory(user_id)
 
     text = (
 
         "🧠 MEMORY\n\n"
 
-        f"👤 Facts: "
-        f"{len(user['facts'])}\n"
-
-        f"🎯 Goals: "
-        f"{len(user['goals'])}\n"
-
-        f"📚 Knowledge: "
-        f"{len(user['knowledge'])}\n"
-
-        f"📈 Experience: "
-        f"{len(user['experience'])}\n"
-
-        f"💬 History: "
-        f"{len(user['history'])}\n"
+        f"👤 Facts: {len(user['facts'])}\n"
+        f"🎯 Goals: {len(user['goals'])}\n"
+        f"📚 Knowledge: {len(user['knowledge'])}\n"
+        f"📈 Experience: {len(user['experience'])}\n"
+        f"💬 History: {len(user['history'])}\n"
     )
 
     if user["facts"]:
 
-        text += (
-            "\n👤 Маалымат:\n"
-        )
+        text += "\n👤 Маалымат:\n"
 
         for item in user["facts"][-10:]:
-
-            text += (
-                "• "
-                + item
-                + "\n"
-            )
+            text += "• " + item + "\n"
 
     if user["goals"]:
 
-        text += (
-            "\n🎯 Максаттар:\n"
-        )
+        text += "\n🎯 Максаттар:\n"
 
         for item in user["goals"][-10:]:
-
-            text += (
-                "• "
-                + item
-                + "\n"
-            )
+            text += "• " + item + "\n"
 
     await update.message.reply_text(
         text[:4000]
@@ -839,7 +637,7 @@ async def memory_command(
 
 
 # =========================================================
-# CLEAR MEMORY
+# /CLEARMEMORY
 # =========================================================
 
 async def clear_memory(
@@ -852,21 +650,14 @@ async def clear_memory(
     )
 
     memory[user_id] = {
-
         "facts": [],
-
         "goals": [],
-
         "knowledge": [],
-
         "experience": [],
-
         "history": []
     }
 
-    save_memory(
-        memory
-    )
+    save_memory(memory)
 
     await update.message.reply_text(
         "🧹 Memory толугу менен тазаланды."
@@ -874,7 +665,7 @@ async def clear_memory(
 
 
 # =========================================================
-# TEST API
+# /TESTAPI
 # =========================================================
 
 async def test_api(
@@ -882,15 +673,10 @@ async def test_api(
     context: ContextTypes.DEFAULT_TYPE
 ):
 
-    result = (
-        "🔍 API TEST\n\n"
-    )
+    result = "🔍 API TEST\n\n"
 
 
-    # =====================================================
     # GROQ
-    # =====================================================
-
     try:
 
         response = (
@@ -898,39 +684,34 @@ async def test_api(
             .chat
             .completions
             .create(
-
                 model=GROQ_MODEL,
-
                 messages=[
                     {
                         "role": "user",
                         "content": "Reply only: OK"
                     }
                 ],
-
                 max_tokens=20
             )
         )
 
         answer = ""
 
-        if (
-            response
-            and getattr(
-                response,
-                "choices",
-                None
-            )
-        ):
+        choices = getattr(
+            response,
+            "choices",
+            None
+        )
+
+        if choices:
 
             message = getattr(
-                response.choices[0],
+                choices[0],
                 "message",
                 None
             )
 
             if message:
-
                 answer = clean_answer(
                     getattr(
                         message,
@@ -940,16 +721,9 @@ async def test_api(
                 )
 
         if answer:
-
-            result += (
-                "🔵 Groq: 🟢 ИШТЕДИ\n"
-            )
-
+            result += "🔵 Groq: 🟢 ИШТЕДИ\n"
         else:
-
-            result += (
-                "🔵 Groq: 🔴 БОШ ЖООП\n"
-            )
+            result += "🔵 Groq: 🔴 БОШ ЖООП\n"
 
     except Exception as e:
 
@@ -960,19 +734,14 @@ async def test_api(
         )
 
 
-    # =====================================================
     # GEMINI
-    # =====================================================
-
     try:
 
         response = (
             gemini_client
             .models
             .generate_content(
-
                 model=GEMINI_MODEL,
-
                 contents="Reply only: OK"
             )
         )
@@ -986,16 +755,9 @@ async def test_api(
         )
 
         if answer:
-
-            result += (
-                "🟢 Gemini: 🟢 ИШТЕДИ\n"
-            )
-
+            result += "🟢 Gemini: 🟢 ИШТЕДИ\n"
         else:
-
-            result += (
-                "🟢 Gemini: 🔴 БОШ ЖООП\n"
-            )
+            result += "🟢 Gemini: 🔴 БОШ ЖООП\n"
 
     except Exception as e:
 
@@ -1006,21 +768,15 @@ async def test_api(
         )
 
 
-    # =====================================================
     # OPENAI
-    # =====================================================
-
     try:
 
         response = (
             openai_client
             .responses
             .create(
-
                 model=OPENAI_MODEL,
-
                 input="Reply only: OK",
-
                 max_output_tokens=20
             )
         )
@@ -1034,16 +790,9 @@ async def test_api(
         )
 
         if answer:
-
-            result += (
-                "🟣 OpenAI: 🟢 ИШТЕДИ\n"
-            )
-
+            result += "🟣 OpenAI: 🟢 ИШТЕДИ\n"
         else:
-
-            result += (
-                "🟣 OpenAI: 🔴 БОШ ЖООП\n"
-            )
+            result += "🟣 OpenAI: 🔴 БОШ ЖООП\n"
 
     except Exception as e:
 
@@ -1068,55 +817,41 @@ async def handle_message(
     context: ContextTypes.DEFAULT_TYPE
 ):
 
-    user_id = (
-        update.effective_user.id
-    )
+    if not update.message:
+        return
 
-    user_text = (
-        update.message.text
-    )
+    user_id = update.effective_user.id
+
+    user_text = update.message.text
+
+    if not user_text:
+        return
 
 
-    # =====================================================
     # MEMORY
-    # =====================================================
-
     simple_auto_memory(
         user_id,
         user_text
     )
 
 
-    # =====================================================
     # STATUS
-    # =====================================================
-
     await update.message.reply_text(
-
         "🧠 AI текшерилип жатат...\n\n"
-
         "🔵 Groq → "
         "🟢 Gemini → "
         "🟣 OpenAI"
     )
 
 
-    # =====================================================
     # ROUTER
-    # =====================================================
-
-    ai_name, answer = (
-        smart_ai_router(
-            user_id,
-            user_text
-        )
+    ai_name, answer = smart_ai_router(
+        user_id,
+        user_text
     )
 
 
-    # =====================================================
     # ALL FAILED
-    # =====================================================
-
     if answer is None:
 
         await update.message.reply_text(
@@ -1126,6 +861,157 @@ async def handle_message(
         return
 
 
-    # =====================================================
-    # HISTORY
-    # =======
+    # SAVE HISTORY
+    add_history(
+        user_id,
+        user_text,
+        answer,
+        ai_name
+    )
+
+
+    # ANSWER
+    final_text = (
+        ai_name
+        + "\n\n"
+        + answer
+    )
+
+    await update.message.reply_text(
+        final_text[:4000]
+    )
+
+
+# =========================================================
+# HEALTH SERVER FOR RENDER
+# =========================================================
+
+class HealthHandler(BaseHTTPRequestHandler):
+
+    def do_GET(self):
+
+        self.send_response(200)
+
+        self.send_header(
+            "Content-type",
+            "text/plain"
+        )
+
+        self.end_headers()
+
+        self.wfile.write(
+            b"AIAssist2026 is running!"
+        )
+
+    def log_message(
+        self,
+        format,
+        *args
+    ):
+        return
+
+
+def run_health_server():
+
+    port = int(
+        os.getenv(
+            "PORT",
+            "10000"
+        )
+    )
+
+    server = HTTPServer(
+        ("0.0.0.0", port),
+        HealthHandler
+    )
+
+    print(
+        f"🌐 Health server: {port}"
+    )
+
+    server.serve_forever()
+
+
+# =========================================================
+# MAIN
+# =========================================================
+
+def main():
+
+    if not TELEGRAM_TOKEN:
+
+        raise RuntimeError(
+            "❌ TELEGRAM_TOKEN табылган жок"
+        )
+
+    print(
+        "🤖 AIAssist2026 иштеп жатат..."
+    )
+
+    health_thread = threading.Thread(
+        target=run_health_server,
+        daemon=True
+    )
+
+    health_thread.start()
+
+
+    application = (
+        Application
+        .builder()
+        .token(TELEGRAM_TOKEN)
+        .build()
+    )
+
+
+    application.add_handler(
+        CommandHandler(
+            "start",
+            start
+        )
+    )
+
+    application.add_handler(
+        CommandHandler(
+            "memory",
+            memory_command
+        )
+    )
+
+    application.add_handler(
+        CommandHandler(
+            "clearmemory",
+            clear_memory
+        )
+    )
+
+    application.add_handler(
+        CommandHandler(
+            "testapi",
+            test_api
+        )
+    )
+
+    application.add_handler(
+        MessageHandler(
+            filters.TEXT
+            & ~filters.COMMAND,
+            handle_message
+        )
+    )
+
+
+    print(
+        "✅ Telegram bot polling башталды..."
+    )
+
+    application.run_polling()
+
+
+# =========================================================
+# START PROGRAM
+# =========================================================
+
+if __name__ == "__main__":
+
+    main()
