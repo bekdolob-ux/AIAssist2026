@@ -16,6 +16,9 @@ from groq import Groq
 from google import genai
 from openai import OpenAI
 
+from google.cloud import firestore
+from google.oauth2 import service_account
+
 
 # =========================================================
 # CONFIG
@@ -27,137 +30,69 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
+GOOGLE_CREDENTIALS_JSON = os.getenv("GOOGLE_CREDENTIALS_JSON")
+
 GROQ_MODEL = "openai/gpt-oss-120b"
 GEMINI_MODEL = "gemini-3.8-flash"
 OPENAI_MODEL = "gpt-5-mini"
 
-MEMORY_FILE = "memory.json"
+FIRESTORE_DATABASE = "ai-studio-e7d6a6f3-8921-414c-887e-4b97383c7bed"
 
 
 # =========================================================
-# CLIENTS
+# AI CLIENTS
 # =========================================================
 
-groq_client = Groq(api_key=GROQ_API_KEY)
+groq_client = None
+gemini_client = None
+openai_client = None
 
-gemini_client = genai.Client(
-    api_key=GEMINI_API_KEY
-)
-
-openai_client = OpenAI(
-    api_key=OPENAI_API_KEY
-)
-
-
-# =========================================================
-# MEMORY
-# =========================================================
-
-def load_memory():
+if GROQ_API_KEY:
     try:
-        if os.path.exists(MEMORY_FILE):
-            with open(
-                MEMORY_FILE,
-                "r",
-                encoding="utf-8"
-            ) as f:
-                return json.load(f)
+        groq_client = Groq(api_key=GROQ_API_KEY)
     except Exception as e:
-        print("❌ Memory load error:", e)
+        print("Groq init error:", e)
 
-    return {}
-
-
-def save_memory(data):
+if GEMINI_API_KEY:
     try:
-        with open(
-            MEMORY_FILE,
-            "w",
-            encoding="utf-8"
-        ) as f:
-            json.dump(
-                data,
-                f,
-                ensure_ascii=False,
-                indent=2
-            )
+        gemini_client = genai.Client(api_key=GEMINI_API_KEY)
     except Exception as e:
-        print("❌ Memory save error:", e)
+        print("Gemini init error:", e)
+
+if OPENAI_API_KEY:
+    try:
+        openai_client = OpenAI(api_key=OPENAI_API_KEY)
+    except Exception as e:
+        print("OpenAI init error:", e)
 
 
-memory = load_memory()
+# =========================================================
+# FIRESTORE
+# =========================================================
 
+db = None
 
-def get_user_memory(user_id):
-    user_id = str(user_id)
+try:
+    if GOOGLE_CREDENTIALS_JSON:
+        credentials_info = json.loads(GOOGLE_CREDENTIALS_JSON)
 
-    if user_id not in memory:
-        memory[user_id] = {
-            "facts": [],
-            "goals": [],
-            "knowledge": [],
-            "experience": [],
-            "history": []
-        }
+        credentials = service_account.Credentials.from_service_account_info(
+            credentials_info
+        )
 
-    user = memory[user_id]
+        db = firestore.Client(
+            project=credentials_info.get("project_id"),
+            credentials=credentials,
+            database=FIRESTORE_DATABASE,
+        )
 
-    user.setdefault("facts", [])
-    user.setdefault("goals", [])
-    user.setdefault("knowledge", [])
-    user.setdefault("experience", [])
-    user.setdefault("history", [])
+        print("✅ Firestore connected")
 
-    return user
+    else:
+        print("❌ GOOGLE_CREDENTIALS_JSON is missing")
 
-
-def memory_text(user_id):
-
-    user = get_user_memory(user_id)
-
-    result = ""
-
-    if user["facts"]:
-        result += "\n👤 МААНИЛҮҮ МААЛЫМАТ:\n"
-
-        for item in user["facts"][-30:]:
-            result += "- " + item + "\n"
-
-    if user["goals"]:
-        result += "\n🎯 МАКСАТТАР:\n"
-
-        for item in user["goals"][-20:]:
-            result += "- " + item + "\n"
-
-    if user["knowledge"]:
-        result += "\n📚 БИЛИМ:\n"
-
-        for item in user["knowledge"][-20:]:
-            result += "- " + item + "\n"
-
-    if user["experience"]:
-        result += "\n📈 ТАЖРЫЙБА:\n"
-
-        for item in user["experience"][-20:]:
-            result += "- " + item + "\n"
-
-    if user["history"]:
-        result += "\n💬 АКЫРКЫ СҮЙЛӨШҮҮЛӨР:\n"
-
-        for item in user["history"][-5:]:
-            result += (
-                "Колдонуучу: "
-                + item["user"]
-                + "\n"
-            )
-
-            result += (
-                "AI: "
-                + item["assistant"][:1000]
-                + "\n\n"
-            )
-
-    return result
+except Exception as e:
+    print("❌ Firestore connection error:", e)
 
 
 # =========================================================
@@ -165,720 +100,485 @@ def memory_text(user_id):
 # =========================================================
 
 SYSTEM_PROMPT = """
-Сен AIAssist2026 — колдонуучунун жеке AI жардамчысысың.
+Сен Бекболоттун жеке AI жардамчысы — AIAssist2026.
 
 Негизги максат:
-Колдонуучуга пайдалуу, реалдуу жана практикалык жардам берүү.
+Бекболоттун жеке кирешесин көбөйтүүгө, кесиптик өсүшүнө,
+бизнес идеяларына, программалоосуна жана жашоосун системалаштырууга жардам берүү.
 
-Memory маалыматтарын контекст катары колдон.
+Сен:
+- кыргызча биринчи жооп бересиң;
+- керек болсо орусча же англисче жооп бере аласың;
+- мурунку маанилүү маалыматтарды эске аласың;
+- жаңы пайдалуу маалыматты Memory'ге сактайсың;
+- факт менен божомолду айырмалайсың;
+- реалдуу жана практикалык кеңеш бересиң;
+- керексиз узун жооп бербейсиң;
+- кадам-кадам көрсөтмө берсең, жөнөкөй түшүндүрөсүң.
 
-Эрежелер:
-
-- Memory'де жок нерсени ойлоп таппа.
-- Белгисиз маалыматты факт катары айтпа.
-- Сандык көрсөткүчтөрдү негизсиз ойлоп чыгарба.
-- Кирешеге кепилдик бербе.
-- Кыргызстандагы реалдуу шарттарды эске ал.
-- Колдонуучунун мурдагы максаттарын жана
-  тажрыйбасын эске ал.
-- Эгер маалымат эски болушу мүмкүн болсо,
-  этият колдон.
-
-Киреше жана бизнес боюнча:
-
-- биринчи кардарды табууга көңүл бур;
-- чоң чыгымдан мурда тест кыл;
-- чыгым менен таза кирешени айырмала;
-- реалдуу кадамдарды сунушта.
-
-Жооптор:
-
-- түшүнүктүү;
-- практикалык;
-- керексиз узун эмес;
-- керек болсо кадам-кадам;
-- кыргыз тилинде жооп бер.
+Маанилүү:
+Колдонуучунун сырсөздөрүн, API key'лерин жана башка жашыруун
+credential маалыматтарын Memory'ге сактаба.
 """
 
 
 # =========================================================
-# HELPERS
+# FIRESTORE MEMORY
 # =========================================================
 
-def clean_answer(answer):
+def get_memory(user_id):
+    if db is None:
+        return {}
 
-    if answer is None:
+    try:
+        doc_ref = db.collection("users").document(str(user_id))
+        doc = doc_ref.get()
+
+        if doc.exists:
+            return doc.to_dict()
+
+        return {}
+
+    except Exception as e:
+        print("Memory read error:", e)
+        return {}
+
+
+def save_memory(user_id, memory):
+    if db is None:
+        return False
+
+    try:
+        doc_ref = db.collection("users").document(str(user_id))
+
+        doc_ref.set(
+            memory,
+            merge=True
+        )
+
+        return True
+
+    except Exception as e:
+        print("Memory save error:", e)
+        return False
+
+
+def add_memory(user_id, user_text, assistant_text):
+    memory = get_memory(user_id)
+
+    if "history" not in memory:
+        memory["history"] = []
+
+    history = memory["history"]
+
+    history.append({
+        "user": user_text,
+        "assistant": assistant_text
+    })
+
+    # Акыркы 30 диалогду гана сактайбыз
+    memory["history"] = history[-30:]
+
+    save_memory(user_id, memory)
+
+
+# =========================================================
+# BUILD CONTEXT
+# =========================================================
+
+def build_context(user_id):
+
+    memory = get_memory(user_id)
+
+    if not memory:
         return ""
 
-    if not isinstance(answer, str):
-        answer = str(answer)
+    history = memory.get("history", [])
 
-    return answer.strip()
+    if not history:
+        return ""
+
+    context = "\n\nМурунку сүйлөшүүлөрдөн маанилүү маалымат:\n"
+
+    for item in history[-15:]:
+        context += f"""
+Колдонуучу: {item.get("user", "")}
+AI: {item.get("assistant", "")}
+"""
+
+    return context
 
 
 # =========================================================
 # GROQ
 # =========================================================
 
-def ask_groq(user_id, user_text):
+def ask_groq(prompt):
 
-    prompt = (
-        SYSTEM_PROMPT
-        + "\n"
-        + memory_text(user_id)
-    )
+    if groq_client is None:
+        return None
 
     try:
 
-        response = (
-            groq_client
-            .chat
-            .completions
-            .create(
-                model=GROQ_MODEL,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": prompt
-                    },
-                    {
-                        "role": "user",
-                        "content": user_text
-                    }
-                ],
-                max_tokens=5000
-            )
+        response = groq_client.chat.completions.create(
+            model=GROQ_MODEL,
+            messages=[
+                {
+                    "role": "system",
+                    "content": SYSTEM_PROMPT
+                },
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
+            temperature=0.7,
+            max_tokens=1500
         )
 
-        print(
-            "🔵 GROQ RAW:",
-            str(response)[:1000]
-        )
+        if response and response.choices:
 
-        answer = ""
+            text = response.choices[0].message.content
 
-        choices = getattr(
-            response,
-            "choices",
-            None
-        )
-
-        if choices:
-
-            message = getattr(
-                choices[0],
-                "message",
-                None
-            )
-
-            if message:
-                answer = getattr(
-                    message,
-                    "content",
-                    ""
-                )
-
-        answer = clean_answer(answer)
-
-        if not answer:
-            raise Exception(
-                "Groq бош жооп кайтарды"
-            )
-
-        return answer
+            if text and text.strip():
+                return text.strip()
 
     except Exception as e:
+        print("Groq error:", e)
 
-        print(
-            "❌ GROQ ERROR:",
-            e
-        )
-
-        raise
+    return None
 
 
 # =========================================================
 # GEMINI
 # =========================================================
 
-def ask_gemini(user_id, user_text):
+def ask_gemini(prompt):
 
-    prompt = (
-        SYSTEM_PROMPT
-        + "\n"
-        + memory_text(user_id)
-        + "\n\nКолдонуучу:\n"
-        + user_text
-    )
+    if gemini_client is None:
+        return None
 
     try:
 
-        response = (
-            gemini_client
-            .models
-            .generate_content(
-                model=GEMINI_MODEL,
-                contents=prompt
-            )
+        response = gemini_client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=SYSTEM_PROMPT + "\n\n" + prompt
         )
 
-        answer = clean_answer(
-            getattr(
-                response,
-                "text",
-                ""
-            )
-        )
+        if response:
 
-        if not answer:
-            raise Exception(
-                "Gemini бош жооп кайтарды"
-            )
+            text = getattr(response, "text", None)
 
-        return answer
+            if text and text.strip():
+                return text.strip()
 
     except Exception as e:
+        print("Gemini error:", e)
 
-        print(
-            "❌ GEMINI ERROR:",
-            e
-        )
-
-        raise
+    return None
 
 
 # =========================================================
 # OPENAI
 # =========================================================
 
-def ask_openai(user_id, user_text):
+def ask_openai(prompt):
 
-    full_prompt = (
-        SYSTEM_PROMPT
-        + "\n"
-        + memory_text(user_id)
-        + "\n\nКолдонуучу:\n"
-        + user_text
-    )
+    if openai_client is None:
+        return None
 
     try:
 
-        response = (
-            openai_client
-            .responses
-            .create(
-                model=OPENAI_MODEL,
-                input=full_prompt,
-                max_output_tokens=5000
-            )
+        response = openai_client.responses.create(
+            model=OPENAI_MODEL,
+            instructions=SYSTEM_PROMPT,
+            input=prompt,
+            max_output_tokens=1500
         )
 
-        print(
-            "🟣 OPENAI RESPONSE:",
-            str(response)[:1000]
-        )
+        text = getattr(response, "output_text", None)
 
-        answer = clean_answer(
-            getattr(
-                response,
-                "output_text",
-                ""
-            )
-        )
-
-        if not answer:
-            raise Exception(
-                "OpenAI бош жооп кайтарды"
-            )
-
-        return answer
+        if text and text.strip():
+            return text.strip()
 
     except Exception as e:
+        print("OpenAI error:", e)
 
-        print(
-            "❌ OPENAI ERROR:",
-            e
-        )
-
-        raise
+    return None
 
 
 # =========================================================
 # SMART AI ROUTER
 # =========================================================
 
-def smart_ai_router(user_id, user_text):
+def smart_ai_router(prompt):
 
-    # GROQ
+    # 1. GROQ
     try:
+        answer = ask_groq(prompt)
 
-        answer = ask_groq(
-            user_id,
-            user_text
-        )
+        if answer:
+            print("✅ AI: Groq")
+            return answer, "Groq"
 
-        return "🔵 Groq", answer
-
-    except Exception:
-
-        print(
-            "➡️ Groq иштеген жок. "
-            "Geminiге өтөбүз."
-        )
+    except Exception as e:
+        print("Groq router error:", e)
 
 
-    # GEMINI
+    # 2. GEMINI
     try:
+        answer = ask_gemini(prompt)
 
-        answer = ask_gemini(
-            user_id,
-            user_text
-        )
+        if answer:
+            print("✅ AI: Gemini")
+            return answer, "Gemini"
 
-        return "🟢 Gemini", answer
-
-    except Exception:
-
-        print(
-            "➡️ Gemini иштеген жок. "
-            "OpenAIге өтөбүз."
-        )
+    except Exception as e:
+        print("Gemini router error:", e)
 
 
-    # OPENAI
+    # 3. OPENAI
     try:
+        answer = ask_openai(prompt)
 
-        answer = ask_openai(
-            user_id,
-            user_text
-        )
+        if answer:
+            print("✅ AI: OpenAI")
+            return answer, "OpenAI"
 
-        return "🟣 OpenAI", answer
-
-    except Exception:
-
-        print(
-            "❌ ҮЧ AI ТЕҢ ИШТЕГЕН ЖОК."
-        )
+    except Exception as e:
+        print("OpenAI router error:", e)
 
 
     return (
-        "❌ AI кызматтарынын үчөө тең "
-        "учурда жеткиликсиз.",
+        "❌ Азыр үч AI кызматында тең жооп алуу мүмкүн болгон жок. "
+        "Бир аздан кийин кайра аракет кыл.",
         None
     )
 
 
 # =========================================================
-# HISTORY
+# START
 # =========================================================
 
-def add_history(
-    user_id,
-    user_text,
-    answer,
-    ai_name
-):
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-    user = get_user_memory(user_id)
-
-    user["history"].append({
-        "user": user_text,
-        "assistant": answer,
-        "ai": ai_name
-    })
-
-    user["history"] = user["history"][-30:]
-
-    save_memory(memory)
-
-
-# =========================================================
-# AUTO MEMORY
-# =========================================================
-
-def simple_auto_memory(user_id, user_text):
-
-    user = get_user_memory(user_id)
-
-    text = user_text.lower().strip()
-
-    # Суроолорду сактаба
-    if "?" in user_text:
-        return
-
-    # NAME
-    if (
-        "менин атым" in text
-        or "аты-жөнүм" in text
-    ):
-
-        fact = user_text.strip()
-
-        if fact not in user["facts"]:
-            user["facts"].append(fact)
-
-
-    # GOAL
-    goal_words = [
-        "максатым",
-        "негизги максат",
-        "максат —",
-        "максат -",
-        "каалайм"
-    ]
-
-    if any(
-        word in text
-        for word in goal_words
-    ):
-
-        goal = user_text.strip()
-
-        if goal not in user["goals"]:
-            user["goals"].append(goal)
-
-
-    # SKILLS
-    skill_words = [
-        "билем",
-        "иштейм",
-        "кесибим",
-        "тажрыйбам",
-        "тажрыйбам бар",
-        "үйрөнгөм"
-    ]
-
-    if any(
-        word in text
-        for word in skill_words
-    ):
-
-        fact = user_text.strip()
-
-        if fact not in user["facts"]:
-            user["facts"].append(fact)
-
-
-    user["facts"] = user["facts"][-50:]
-    user["goals"] = user["goals"][-30:]
-
-    save_memory(memory)
-
-
-# =========================================================
-# /START
-# =========================================================
-
-async def start(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE
-):
+    user = update.effective_user
 
     await update.message.reply_text(
+        f"""
+🤖 AIAssist2026
 
-        "🧠 AIAssist2026\n\n"
+Салам, {user.first_name or "Бекболот"}!
 
-        "Мен сенин жеке AI жардамчыңмын.\n\n"
+Мен сенин жеке AI жардамчыңмын.
 
-        "🤖 Smart AI Router:\n"
-        "1️⃣ 🔵 Groq\n"
-        "2️⃣ 🟢 Gemini\n"
-        "3️⃣ 🟣 OpenAI\n\n"
+🎯 Негизги максат:
+Жеке кирешеңди көбөйтүү.
 
-        "Кайсы AI жеткиликтүү болсо,"
-        " ошол автоматтык колдонулат.\n\n"
+Мен сага жардам бере алам:
 
-        "🧠 Memory иштейт."
+💰 Киреше
+💼 Жумуш
+🚀 Бизнес
+📱 Онлайн киреше
+💻 Программалоо
+📊 Финансы
+🧠 Өнүгүү
+🗂 Memory
+
+Жөн гана сурооңду жаз.
+"""
     )
 
 
 # =========================================================
-# /MEMORY
+# MEMORY COMMAND
 # =========================================================
 
-async def memory_command(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE
-):
+async def memory_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_id = update.effective_user.id
 
-    user = get_user_memory(user_id)
+    memory = get_memory(user_id)
 
-    text = (
+    history = memory.get("history", [])
 
-        "🧠 MEMORY\n\n"
+    if not history:
 
-        f"👤 Facts: {len(user['facts'])}\n"
-        f"🎯 Goals: {len(user['goals'])}\n"
-        f"📚 Knowledge: {len(user['knowledge'])}\n"
-        f"📈 Experience: {len(user['experience'])}\n"
-        f"💬 History: {len(user['history'])}\n"
-    )
+        await update.message.reply_text(
+            "🧠 Memory азырынча бош."
+        )
 
-    if user["facts"]:
-
-        text += "\n👤 Маалымат:\n"
-
-        for item in user["facts"][-10:]:
-            text += "• " + item + "\n"
-
-    if user["goals"]:
-
-        text += "\n🎯 Максаттар:\n"
-
-        for item in user["goals"][-10:]:
-            text += "• " + item + "\n"
+        return
 
     await update.message.reply_text(
-        text[:4000]
+        f"""
+🧠 MEMORY
+
+Сакталган диалогдор:
+{len(history)}
+
+Memory Firestore'до сакталат.
+Render кайра иштесе да маалымат өчпөйт.
+"""
     )
 
 
 # =========================================================
-# /CLEARMEMORY
+# CLEAR MEMORY
 # =========================================================
 
-async def clear_memory(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE
-):
+async def clear_memory(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-    user_id = str(
-        update.effective_user.id
-    )
+    user_id = update.effective_user.id
 
-    memory[user_id] = {
-        "facts": [],
-        "goals": [],
-        "knowledge": [],
-        "experience": [],
-        "history": []
-    }
+    if db is None:
 
-    save_memory(memory)
+        await update.message.reply_text(
+            "❌ Firestore туташкан эмес."
+        )
 
-    await update.message.reply_text(
-        "🧹 Memory толугу менен тазаланды."
-    )
+        return
 
-
-# =========================================================
-# /TESTAPI
-# =========================================================
-
-async def test_api(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE
-):
-
-    result = "🔍 API TEST\n\n"
-
-
-    # GROQ
     try:
 
-        response = (
-            groq_client
-            .chat
-            .completions
-            .create(
-                model=GROQ_MODEL,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": "Reply only: OK"
-                    }
-                ],
-                max_tokens=20
-            )
+        db.collection("users").document(
+            str(user_id)
+        ).set(
+            {
+                "history": []
+            },
+            merge=True
         )
 
-        answer = ""
-
-        choices = getattr(
-            response,
-            "choices",
-            None
+        await update.message.reply_text(
+            "🧹 Memory тазаланды."
         )
-
-        if choices:
-
-            message = getattr(
-                choices[0],
-                "message",
-                None
-            )
-
-            if message:
-                answer = clean_answer(
-                    getattr(
-                        message,
-                        "content",
-                        ""
-                    )
-                )
-
-        if answer:
-            result += "🔵 Groq: 🟢 ИШТЕДИ\n"
-        else:
-            result += "🔵 Groq: 🔴 БОШ ЖООП\n"
 
     except Exception as e:
 
-        result += (
-            "🔵 Groq: 🔴 ERROR\n"
-            + str(e)[:500]
-            + "\n\n"
+        print("Clear memory error:", e)
+
+        await update.message.reply_text(
+            "❌ Memory тазалоодо ката кетти."
         )
+
+
+# =========================================================
+# TEST API
+# =========================================================
+
+async def test_api(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    await update.message.reply_text(
+        "🔍 API TEST башталды..."
+    )
+
+    results = []
+
+    # GROQ
+    groq_result = ask_groq("Жооп бер: OK")
+
+    if groq_result:
+        results.append("🔵 Groq: 🟢 OK")
+    else:
+        results.append("🔵 Groq: 🔴 ERROR")
 
 
     # GEMINI
-    try:
+    gemini_result = ask_gemini("Жооп бер: OK")
 
-        response = (
-            gemini_client
-            .models
-            .generate_content(
-                model=GEMINI_MODEL,
-                contents="Reply only: OK"
-            )
-        )
-
-        answer = clean_answer(
-            getattr(
-                response,
-                "text",
-                ""
-            )
-        )
-
-        if answer:
-            result += "🟢 Gemini: 🟢 ИШТЕДИ\n"
-        else:
-            result += "🟢 Gemini: 🔴 БОШ ЖООП\n"
-
-    except Exception as e:
-
-        result += (
-            "🟢 Gemini: 🔴 ERROR\n"
-            + str(e)[:500]
-            + "\n\n"
-        )
+    if gemini_result:
+        results.append("🟢 Gemini: 🟢 OK")
+    else:
+        results.append("🟢 Gemini: 🔴 ERROR")
 
 
     # OPENAI
-    try:
+    openai_result = ask_openai("Жооп бер: OK")
 
-        response = (
-            openai_client
-            .responses
-            .create(
-                model=OPENAI_MODEL,
-                input="Reply only: OK",
-                max_output_tokens=20
-            )
-        )
+    if openai_result:
+        results.append("🟣 OpenAI: 🟢 OK")
+    else:
+        results.append("🟣 OpenAI: 🔴 ERROR")
 
-        answer = clean_answer(
-            getattr(
-                response,
-                "output_text",
-                ""
-            )
-        )
 
-        if answer:
-            result += "🟣 OpenAI: 🟢 ИШТЕДИ\n"
-        else:
-            result += "🟣 OpenAI: 🔴 БОШ ЖООП\n"
+    firestore_status = (
+        "🟡 Firestore: 🟢 CONNECTED"
+        if db is not None
+        else
+        "🟡 Firestore: 🔴 ERROR"
+    )
 
-    except Exception as e:
-
-        result += (
-            "🟣 OpenAI: 🔴 ERROR\n"
-            + str(e)[:500]
-            + "\n"
-        )
-
+    results.append(firestore_status)
 
     await update.message.reply_text(
-        result[:4000]
+        "🔍 API TEST\n\n" +
+        "\n".join(results)
     )
 
 
 # =========================================================
-# MAIN MESSAGE
+# MESSAGE HANDLER
 # =========================================================
 
-async def handle_message(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE
-):
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not update.message:
         return
 
     user_id = update.effective_user.id
 
-    user_text = update.message.text
+    user_text = update.message.text.strip()
 
     if not user_text:
         return
 
+    # Memory context
+    memory_context = build_context(user_id)
 
-    # MEMORY
-    simple_auto_memory(
-        user_id,
-        user_text
+    prompt = f"""
+{memory_context}
+
+Жаңы билдирүү:
+
+{user_text}
+
+Колдонуучуга түз жана пайдалуу жооп бер.
+"""
+
+
+    await update.message.chat.send_action(
+        action="typing"
     )
 
+    answer, provider = smart_ai_router(prompt)
 
-    # STATUS
-    await update.message.reply_text(
-        "🧠 AI текшерилип жатат...\n\n"
-        "🔵 Groq → "
-        "🟢 Gemini → "
-        "🟣 OpenAI"
-    )
+    if not answer:
+        answer = "❌ AI жооп бере алган жок."
 
 
-    # ROUTER
-    ai_name, answer = smart_ai_router(
-        user_id,
-        user_text
-    )
+    # Memory save
+    if provider:
+
+        try:
+            add_memory(
+                user_id,
+                user_text,
+                answer
+            )
+
+        except Exception as e:
+
+            print("Memory save failed:", e)
 
 
-    # ALL FAILED
-    if answer is None:
-
-        await update.message.reply_text(
-            ai_name
-        )
-
-        return
-
-
-    # SAVE HISTORY
-    add_history(
-        user_id,
-        user_text,
-        answer,
-        ai_name
-    )
-
-
-    # ANSWER
-    final_text = (
-        ai_name
-        + "\n\n"
-        + answer
-    )
+    # AI provider көрүнүп турсун
+    if provider:
+        answer = f"{answer}\n\n— {provider}"
 
     await update.message.reply_text(
-        final_text[:4000]
+        answer
     )
 
 
@@ -903,18 +603,14 @@ class HealthHandler(BaseHTTPRequestHandler):
             b"AIAssist2026 is running!"
         )
 
-    def log_message(
-        self,
-        format,
-        *args
-    ):
+    def log_message(self, format, *args):
         return
 
 
 def run_health_server():
 
     port = int(
-        os.getenv(
+        os.environ.get(
             "PORT",
             "10000"
         )
@@ -926,7 +622,7 @@ def run_health_server():
     )
 
     print(
-        f"🌐 Health server: {port}"
+        f"🌐 Health server running on port {port}"
     )
 
     server.serve_forever()
@@ -940,78 +636,71 @@ def main():
 
     if not TELEGRAM_TOKEN:
 
-        raise RuntimeError(
-            "❌ TELEGRAM_TOKEN табылган жок"
+        print(
+            "❌ TELEGRAM_TOKEN жок!"
         )
 
-    print(
-        "🤖 AIAssist2026 иштеп жатат..."
-    )
+        return
 
-    health_thread = threading.Thread(
+
+    threading.Thread(
         target=run_health_server,
         daemon=True
+    ).start()
+
+
+    print(
+        "🤖 Telegram AI бот иштеп жатат..."
     )
 
-    health_thread.start()
 
-
-    application = (
-        Application
-        .builder()
+    app = (
+        Application.builder()
         .token(TELEGRAM_TOKEN)
         .build()
     )
 
 
-    application.add_handler(
+    app.add_handler(
         CommandHandler(
             "start",
             start
         )
     )
 
-    application.add_handler(
+    app.add_handler(
         CommandHandler(
             "memory",
             memory_command
         )
     )
 
-    application.add_handler(
+    app.add_handler(
         CommandHandler(
             "clearmemory",
             clear_memory
         )
     )
 
-    application.add_handler(
+    app.add_handler(
         CommandHandler(
             "testapi",
             test_api
         )
     )
 
-    application.add_handler(
+    app.add_handler(
         MessageHandler(
-            filters.TEXT
-            & ~filters.COMMAND,
+            filters.TEXT & ~filters.COMMAND,
             handle_message
         )
     )
 
 
-    print(
-        "✅ Telegram bot polling башталды..."
+    app.run_polling(
+        drop_pending_updates=True
     )
 
-    application.run_polling()
-
-
-# =========================================================
-# START PROGRAM
-# =========================================================
 
 if __name__ == "__main__":
-
     main()
