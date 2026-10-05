@@ -1,12 +1,7 @@
-import asyncio
 import os
-import threading
 import json
+import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
-
-from google import genai
-from groq import Groq
-from openai import OpenAI
 
 from telegram import Update
 from telegram.ext import (
@@ -14,36 +9,43 @@ from telegram.ext import (
     CommandHandler,
     MessageHandler,
     ContextTypes,
-    filters
+    filters,
 )
 
-# =========================
-# API KEYS
-# =========================
+from groq import Groq
+from google import genai
+from openai import OpenAI
 
-TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
-GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
-GROQ_API_KEY = os.environ["GROQ_API_KEY"]
-OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
 
-# =========================
-# MODELS
-# =========================
+# =========================================================
+# CONFIG
+# =========================================================
 
-GEMINI_MODEL = "gemini-3.8-flash"
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+
 GROQ_MODEL = "openai/gpt-oss-120b"
+GEMINI_MODEL = "gemini-3.8-flash"
 OPENAI_MODEL = "gpt-5-mini"
-
-gemini = genai.Client(api_key=GEMINI_API_KEY)
-groq = Groq(api_key=GROQ_API_KEY)
-openai_client = OpenAI(api_key=OPENAI_API_KEY)
-
-# =========================
-# MEMORY
-# =========================
 
 MEMORY_FILE = "memory.json"
 
+
+# =========================================================
+# CLIENTS
+# =========================================================
+
+groq_client = Groq(api_key=GROQ_API_KEY)
+gemini_client = genai.Client(api_key=GEMINI_API_KEY)
+openai_client = OpenAI(api_key=OPENAI_API_KEY)
+
+
+# =========================================================
+# MEMORY SYSTEM
+# =========================================================
 
 def load_memory():
     try:
@@ -59,7 +61,12 @@ def load_memory():
 def save_memory(memory):
     try:
         with open(MEMORY_FILE, "w", encoding="utf-8") as f:
-            json.dump(memory, f, ensure_ascii=False, indent=2)
+            json.dump(
+                memory,
+                f,
+                ensure_ascii=False,
+                indent=2
+            )
     except Exception as e:
         print("Memory save error:", e)
 
@@ -73,116 +80,672 @@ def get_user_memory(user_id):
     if user_id not in memory:
         memory[user_id] = {
             "facts": [],
+            "goals": [],
+            "knowledge": [],
+            "experience": [],
             "history": []
         }
 
-    return memory[user_id]
+    user = memory[user_id]
+
+    # Эски форматтагы memory болсо автоматтык толуктайбыз
+    user.setdefault("facts", [])
+    user.setdefault("goals", [])
+    user.setdefault("knowledge", [])
+    user.setdefault("experience", [])
+    user.setdefault("history", [])
+
+    return user
 
 
-def add_memory(user_id, user_text, answer):
-    user = get_user_memory(user_id)
-
-    # Акыркы сүйлөшүүнү сактайбыз
-    user["history"].append({
-        "user": user_text,
-        "assistant": answer
-    })
-
-    # Өтө чоң болуп кетпеши үчүн акыркы 20 сүйлөшүү
-    user["history"] = user["history"][-20:]
-
-    save_memory(memory)
-
+# =========================================================
+# MEMORY TEXT
+# =========================================================
 
 def memory_text(user_id):
     user = get_user_memory(user_id)
 
-    facts = user.get("facts", [])
-    history = user.get("history", [])
-
     result = ""
 
-    if facts:
-        result += "\nМААНИЛҮҮ ЭС ТУТУМ:\n"
-        for fact in facts[-30:]:
-            result += "- " + fact + "\n"
+    if user["facts"]:
+        result += "\n👤 ТУРУКТУУ МААНИЛҮҮ МААЛЫМАТ:\n"
+        for item in user["facts"][-30:]:
+            result += "- " + item + "\n"
 
-    if history:
-        result += "\nАКЫРКЫ СҮЙЛӨШҮҮЛӨР:\n"
+    if user["goals"]:
+        result += "\n🎯 МАКСАТТАР:\n"
+        for item in user["goals"][-20:]:
+            result += "- " + item + "\n"
 
-        for item in history[-5:]:
+    if user["knowledge"]:
+        result += "\n📚 ҮЙРӨНҮЛГӨН МААЛЫМАТ:\n"
+        for item in user["knowledge"][-20:]:
+            result += "- " + item + "\n"
+
+    if user["experience"]:
+        result += "\n📈 ТАЖРЫЙБА:\n"
+        for item in user["experience"][-20:]:
+            result += "- " + item + "\n"
+
+    if user["history"]:
+        result += "\n💬 АКЫРКЫ СҮЙЛӨШҮҮЛӨР:\n"
+
+        for item in user["history"][-5:]:
             result += (
                 "Колдонуучу: "
                 + item["user"]
                 + "\n"
-                + "AI: "
-                + item["assistant"][:1000]
+            )
+
+            result += (
+                "AI: "
+                + item["assistant"][:1200]
                 + "\n\n"
             )
 
     return result
 
 
-# =========================
+# =========================================================
+# AUTOMATIC LEARNING
+# =========================================================
+
+def learn_from_conversation(user_id, user_text, answer):
+    """
+    Ар бир сүйлөшүүдөн маанилүү маалыматтарды чыгарып,
+    Memory'ге автоматтык сактайт.
+    """
+
+    user = get_user_memory(user_id)
+
+    prompt = f"""
+Сен жеке AI жардамчынын Memory менеджерисиң.
+
+Колдонуучунун жаңы билдирүүсүн жана AI жоопту анализде.
+
+Жаңы маалыматтардан КАЙСЫЛАРЫН келечекте колдонуу үчүн
+эс тутумга сактоо керек экенин аныкта.
+
+Маанилүү маалыматтар:
+- аты
+- жашаган жери
+- кесиби
+- жөндөмдөрү
+- тажрыйбасы
+- максаттары
+- долбоорлору
+- узак мөөнөттүү пландары
+- бюджеттери
+- артыкчылыктары
+- эмне иштеген/иштебеген
+- маанилүү чечимдер
+- үйрөнүлгөн пайдалуу нерселер
+
+Кыска жана так жаз.
+
+МААНИЛҮҮ:
+- Убактылуу сүйлөшүүнү сактаба.
+- Жөн гана жалпы кеңештерди сактаба.
+- Ойлоп таппа.
+- Колдонуучу айтпаган маалыматты кошпо.
+- Эгер жаңы маанилүү маалымат жок болсо, бош массив бер.
+
+JSON гана кайтар:
+
+{{
+  "facts": [],
+  "goals": [],
+  "knowledge": [],
+  "experience": []
+}}
+
+КОЛДОНУУЧУ:
+{user_text}
+
+AI ЖООБУ:
+{answer}
+"""
+
+    try:
+        response = openai_client.chat.completions.create(
+            model=OPENAI_MODEL,
+            messages=[
+                {
+                    "role": "system",
+                    "content": "Сен так Memory анализаторсуң. JSON гана кайтар."
+                },
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
+            max_completion_tokens=2000
+        )
+
+        raw = response.choices[0].message.content.strip()
+
+        # Markdown ```json ... ``` болсо тазалайбыз
+        if raw.startswith("```"):
+            raw = raw.replace("```json", "")
+            raw = raw.replace("```", "")
+            raw = raw.strip()
+
+        data = json.loads(raw)
+
+        for category in [
+            "facts",
+            "goals",
+            "knowledge",
+            "experience"
+        ]:
+            new_items = data.get(category, [])
+
+            if not isinstance(new_items, list):
+                continue
+
+            for item in new_items:
+                if not isinstance(item, str):
+                    continue
+
+                item = item.strip()
+
+                if not item:
+                    continue
+
+                # Дубликат болбосун
+                if item not in user[category]:
+                    user[category].append(item)
+
+        # Өтө чоң болуп кетпесин
+        user["facts"] = user["facts"][-50:]
+        user["goals"] = user["goals"][-30:]
+        user["knowledge"] = user["knowledge"][-50:]
+        user["experience"] = user["experience"][-50:]
+
+        save_memory(memory)
+
+        print("🧠 Memory жаңырды:", user_id)
+
+    except Exception as e:
+        print("Learning error:", e)
+
+
+# =========================================================
+# HISTORY
+# =========================================================
+
+def add_history(user_id, user_text, answer):
+
+    user = get_user_memory(user_id)
+
+    user["history"].append({
+        "user": user_text,
+        "assistant": answer
+    })
+
+    user["history"] = user["history"][-20:]
+
+    save_memory(memory)
+
+
+# =========================================================
 # SYSTEM PROMPT
-# =========================
+# =========================================================
 
 SYSTEM_PROMPT = """
-Сен күчтүү жеке AI жардамчысың.
+Сен AIAssist2026 — колдонуучунун жеке AI жардамчысысың.
 
-Колдонуучу кайсы тилде жазса,
-ошол тилде жооп бер.
+Негизги принцип:
+Колдонуучуга реалдуу, практикалык жана пайдалуу жооп бер.
 
-Кыргызча суроого кыргызча жооп бер.
-Орусча суроого орусча жооп бер.
-Англисче суроого англисче жооп бер.
+Колдонуучунун Memory маалыматтарын контекст катары колдон.
 
-Негизги максат:
-колдонуучуга кирешесин көбөйтүүгө,
-кесиптик өсүүгө, бизнеске,
-программалоого жана практикалык иштерге
-жардам берүү.
+Бирок:
+- Memory'де жок маалыматты ойлоп таппа.
+- Белгисиз нерсени факт катары айтпа.
+- Баалар так болбосо, болжол деп белгилеп кой.
+- Киреше боюнча кепилдик бербе.
+- Реалдуу шарттарды эске ал.
+- Кыргызстандагы шартка мүмкүн болушунча ылайыкташтыр.
+- Колдонуучунун мурдагы максаттарын жана тажрыйбасын эске ал.
+- Эгер мурунку маалымат эскирген болушу мүмкүн болсо, аны такталган маалымат катары кабыл алба.
 
-Маалыматты ойлоп чыгарба.
+Эгер колдонуучу бизнес же киреше жөнүндө сураса:
+1. Реалдуу мүмкүнчүлүктөрдү кара.
+2. Чыгымдарды эсепке ал.
+3. Кардарды кайдан табууну айт.
+4. Биринчи кадамды көрсөт.
+5. Чоң акча салуудан мурда тест кылууну сунушта.
+6. Болжол менен кепилдикти айырмала.
 
-Эгер так маалымат жок болсо:
-"Бул болжол" деп ачык айт.
+Жооптор:
+- түшүнүктүү
+- кыска
+- практикалык
+- керексиз теориясыз
+- мүмкүн болсо кадам-кадам болсун.
 
-Киреше боюнча:
-- жүгүртүү менен таза пайданы айырмала
-- кардар санын далилсиз жогору койбо
-- чоң кирешени кепилдик катары көрсөтпө
-- биринчи кардарды табууга басым жаса
-- тобокелдиктерди көрсөт
-
-Колдонуучунун Memory маалыматтарын
-контекст катары колдон.
-
-Бирок Memory'деги маалымат туура эмес
-болушу мүмкүн болсо, аны факт катары кабыл алба.
-
-Татаал суроолордо:
-1. Анализ
-2. Так кадамдар
-3. Чыгым
-4. Потенциалдуу пайда
-5. Тобокелдик
-6. Кийинки кадам
-
-түрүндө жооп бер.
+Колдонуучунун негизги узак мөөнөттүү максаты — кирешесин көбөйтүү,
+бирок бул максат өзгөрүшү мүмкүн. Ошондуктан жаңы маалыматты эске ал.
 """
 
 
-# =========================
-# WEB SERVER FOR RENDER
-# =========================
+# =========================================================
+# GROQ
+# =========================================================
+
+def ask_groq(user_id, user_text):
+
+    context = memory_text(user_id)
+
+    prompt = SYSTEM_PROMPT + "\n" + context
+
+    try:
+
+        response = groq_client.chat.completions.create(
+            model=GROQ_MODEL,
+            messages=[
+                {
+                    "role": "system",
+                    "content": prompt
+                },
+                {
+                    "role": "user",
+                    "content": user_text
+                }
+            ],
+            max_tokens=5000
+        )
+
+        return response.choices[0].message.content
+
+    except Exception as e:
+        return "Groq error: " + str(e)
+
+
+# =========================================================
+# GEMINI
+# =========================================================
+
+def ask_gemini(user_id, user_text):
+
+    context = memory_text(user_id)
+
+    prompt = SYSTEM_PROMPT + "\n" + context
+
+    try:
+
+        response = gemini_client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=prompt + "\n\nКолдонуучу:\n" + user_text
+        )
+
+        if response.text:
+            return response.text
+
+        return "Gemini жооп берген жок."
+
+    except Exception as e:
+        return "Gemini error: " + str(e)
+
+
+# =========================================================
+# OPENAI
+# =========================================================
+
+def ask_openai(user_id, user_text):
+
+    context = memory_text(user_id)
+
+    prompt = SYSTEM_PROMPT + "\n" + context
+
+    try:
+
+        response = openai_client.chat.completions.create(
+            model=OPENAI_MODEL,
+            messages=[
+                {
+                    "role": "system",
+                    "content": prompt
+                },
+                {
+                    "role": "user",
+                    "content": user_text
+                }
+            ],
+            max_completion_tokens=5000
+        )
+
+        return response.choices[0].message.content
+
+    except Exception as e:
+        return "OpenAI error: " + str(e)
+
+
+# =========================================================
+# FINAL AI
+# =========================================================
+
+def make_final_answer(
+    user_id,
+    user_text,
+    groq_answer,
+    gemini_answer,
+    openai_answer
+):
+
+    context = memory_text(user_id)
+
+    prompt = f"""
+Сен AIAssist2026нин башкы AIсың.
+
+Үч AI бир суроого жооп берди.
+
+Сен алардын жоопторун:
+- салыштыр
+- туура эмес жерлерин четке как
+- пайдалуу маалыматтарды бириктир
+- реалдуулугун текшер
+- колдонуучунун Memory маалыматтарын эске ал
+- бир гана мыкты жооп түз.
+
+Ката маалыматты кайталаба.
+
+Эгер үч AI бири-бирине каршы келсе,
+эң негиздүү жана коопсуз вариантты танда.
+
+Сандар так далилденбесе,
+аларды кепилдик катары көрсөтпө.
+
+Колдонуучуга үч AIнын жоопторун өзүнчө көрсөтпө.
+Бирдиктүү жооп бер.
+
+{context}
+
+========================
+
+🔵 GROQ:
+{groq_answer}
+
+========================
+
+🟢 GEMINI:
+{gemini_answer}
+
+========================
+
+🟣 OPENAI:
+{openai_answer}
+
+========================
+
+ЭМИ БИР ГАНА МЫКТЫ ЖООП БЕР.
+"""
+
+    try:
+
+        response = openai_client.chat.completions.create(
+            model=OPENAI_MODEL,
+            messages=[
+                {
+                    "role": "system",
+                    "content": prompt
+                },
+                {
+                    "role": "user",
+                    "content": user_text
+                }
+            ],
+            max_completion_tokens=8000
+        )
+
+        return response.choices[0].message.content
+
+    except Exception as e:
+
+        # Final AI иштебесе OpenAIнин кадимки жообун кайтарабыз
+        return openai_answer
+
+
+# =========================================================
+# TELEGRAM START
+# =========================================================
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    await update.message.reply_text(
+        "🧠 AIAssist2026\n\n"
+        "Мен сенин жеке AI жардамчыңмын.\n\n"
+        "🔵 Groq\n"
+        "🟢 Gemini\n"
+        "🟣 OpenAI\n\n"
+        "Үч AI жоопторун анализдеп, "
+        "бир мыкты жооп берем.\n\n"
+        "🧠 Memory системасы да иштейт."
+    )
+
+
+# =========================================================
+# MEMORY COMMAND
+# =========================================================
+
+async def memory_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    user_id = update.effective_user.id
+
+    user = get_user_memory(user_id)
+
+    text = (
+        "🧠 MEMORY\n\n"
+        f"👤 Facts: {len(user['facts'])}\n"
+        f"🎯 Goals: {len(user['goals'])}\n"
+        f"📚 Knowledge: {len(user['knowledge'])}\n"
+        f"📈 Experience: {len(user['experience'])}\n"
+        f"💬 History: {len(user['history'])}\n"
+    )
+
+    if user["facts"]:
+        text += "\n👤 Маанилүү маалымат:\n"
+
+        for item in user["facts"][-10:]:
+            text += "• " + item + "\n"
+
+    if user["goals"]:
+        text += "\n🎯 Максаттар:\n"
+
+        for item in user["goals"][-10:]:
+            text += "• " + item + "\n"
+
+    await update.message.reply_text(text)
+
+
+# =========================================================
+# CLEAR MEMORY
+# =========================================================
+
+async def clear_memory(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    user_id = str(update.effective_user.id)
+
+    memory[user_id] = {
+        "facts": [],
+        "goals": [],
+        "knowledge": [],
+        "experience": [],
+        "history": []
+    }
+
+    save_memory(memory)
+
+    await update.message.reply_text(
+        "🧹 Memory толугу менен тазаланды."
+    )
+
+
+# =========================================================
+# TEST API
+# =========================================================
+
+async def test_api(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    result = "🔍 API TEST\n\n"
+
+    # GROQ
+    try:
+
+        r = groq_client.chat.completions.create(
+            model=GROQ_MODEL,
+            messages=[
+                {
+                    "role": "user",
+                    "content": "Reply only: OK"
+                }
+            ],
+            max_tokens=20
+        )
+
+        result += "🔵 Groq: 🟢 ИШТЕДИ\n"
+
+    except Exception as e:
+
+        result += "🔵 Groq: 🔴 ERROR\n"
+        result += str(e)[:300] + "\n"
+
+    # GEMINI
+    try:
+
+        r = gemini_client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents="Reply only: OK"
+        )
+
+        result += "🟢 Gemini: 🟢 ИШТЕДИ\n"
+
+    except Exception as e:
+
+        result += "🟢 Gemini: 🔴 ERROR\n"
+        result += str(e)[:300] + "\n"
+
+    # OPENAI
+    try:
+
+        r = openai_client.chat.completions.create(
+            model=OPENAI_MODEL,
+            messages=[
+                {
+                    "role": "user",
+                    "content": "Reply only: OK"
+                }
+            ],
+            max_completion_tokens=20
+        )
+
+        result += "🟣 OpenAI: 🟢 ИШТЕДИ\n"
+
+    except Exception as e:
+
+        result += "🟣 OpenAI: 🔴 ERROR\n"
+        result += str(e)[:300] + "\n"
+
+    await update.message.reply_text(result)
+
+
+# =========================================================
+# MAIN MESSAGE
+# =========================================================
+
+async def handle_message(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
+    user_id = update.effective_user.id
+    user_text = update.message.text
+
+    await update.message.reply_text(
+        "🧠 Үч AI иштеп жатат...\n\n"
+        "🔵 Groq\n"
+        "🟢 Gemini\n"
+        "🟣 OpenAI"
+    )
+
+    # -----------------------------------------------------
+    # 1. ҮЧ AI
+    # -----------------------------------------------------
+
+    groq_answer = ask_groq(
+        user_id,
+        user_text
+    )
+
+    gemini_answer = ask_gemini(
+        user_id,
+        user_text
+    )
+
+    openai_answer = ask_openai(
+        user_id,
+        user_text
+    )
+
+    # -----------------------------------------------------
+    # 2. БИР ГАНА МЫКТЫ ЖООП
+    # -----------------------------------------------------
+
+    final_answer = make_final_answer(
+        user_id,
+        user_text,
+        groq_answer,
+        gemini_answer,
+        openai_answer
+    )
+
+    # -----------------------------------------------------
+    # 3. HISTORY САКТОО
+    # -----------------------------------------------------
+
+    add_history(
+        user_id,
+        user_text,
+        final_answer
+    )
+
+    # -----------------------------------------------------
+    # 4. AUTO LEARNING
+    # -----------------------------------------------------
+
+    learn_from_conversation(
+        user_id,
+        user_text,
+        final_answer
+    )
+
+    # -----------------------------------------------------
+    # 5. USERге ЖООП
+    # -----------------------------------------------------
+
+    await update.message.reply_text(
+        final_answer
+    )
+
+
+# =========================================================
+# RENDER WEB SERVER
+# =========================================================
 
 class HealthHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
+
         self.send_response(200)
-        self.send_header("Content-Type", "text/plain")
+
+        self.send_header(
+            "Content-type",
+            "text/plain; charset=utf-8"
+        )
+
         self.end_headers()
+
         self.wfile.write(
             b"AIAssist2026 is running!"
         )
@@ -191,568 +754,87 @@ class HealthHandler(BaseHTTPRequestHandler):
         return
 
 
-def start_web_server():
-    port = int(os.environ.get("PORT", 10000))
+def run_server():
+
+    port = int(
+        os.environ.get(
+            "PORT",
+            10000
+        )
+    )
 
     server = HTTPServer(
         ("0.0.0.0", port),
         HealthHandler
     )
 
-    print(f"🌐 Web server PORT: {port}")
+    print(
+        f"🌐 Web server started on port {port}"
+    )
 
     server.serve_forever()
 
 
-# =========================
-# GROQ
-# =========================
-
-def ask_groq(text, user_id):
-
-    prompt = (
-        SYSTEM_PROMPT
-        + "\n"
-        + memory_text(user_id)
-        + "\n\nКОЛДОНУУЧУНУН ЖАҢЫ СУРООСУ:\n"
-        + text
-    )
-
-    response = groq.chat.completions.create(
-        model=GROQ_MODEL,
-        messages=[
-            {
-                "role": "system",
-                "content": prompt
-            },
-            {
-                "role": "user",
-                "content": text
-            }
-        ],
-        temperature=0.7,
-        max_tokens=8000
-    )
-
-    if not response.choices:
-        raise Exception("Groq choices бош")
-
-    answer = response.choices[0].message.content
-
-    if not answer:
-        raise Exception("Groq бош жооп берди")
-
-    return answer
-
-
-# =========================
-# GEMINI
-# =========================
-
-def ask_gemini(text, user_id):
-
-    prompt = (
-        SYSTEM_PROMPT
-        + "\n"
-        + memory_text(user_id)
-        + "\n\nКОЛДОНУУЧУНУН ЖАҢЫ СУРООСУ:\n"
-        + text
-    )
-
-    response = gemini.models.generate_content(
-        model=GEMINI_MODEL,
-        contents=prompt
-    )
-
-    if not response.text:
-        raise Exception("Gemini бош жооп берди")
-
-    return response.text
-
-
-# =========================
-# OPENAI
-# =========================
-
-def ask_openai(text, user_id):
-
-    prompt = (
-        SYSTEM_PROMPT
-        + "\n"
-        + memory_text(user_id)
-        + "\n\nКОЛДОНУУЧУНУН ЖАҢЫ СУРООСУ:\n"
-        + text
-    )
-
-    response = openai_client.chat.completions.create(
-        model=OPENAI_MODEL,
-        messages=[
-            {
-                "role": "system",
-                "content": prompt
-            },
-            {
-                "role": "user",
-                "content": text
-            }
-        ],
-        max_completion_tokens=8000
-    )
-
-    if not response.choices:
-        raise Exception("OpenAI choices бош")
-
-    answer = response.choices[0].message.content
-
-    if not answer:
-        raise Exception("OpenAI бош жооп берди")
-
-    return answer
-
-
-# =========================
-# FINAL AI
-# =========================
-
-def make_final_answer(user_text, groq_answer,
-                      gemini_answer, openai_answer):
-
-    prompt = f"""
-Сен үч AI жоопторун анализдеп,
-колдонуучуга БИР гана эң сапаттуу жооп
-берген башкы AIсың.
-
-Колдонуучунун суроосу:
-
-{user_text}
-
-GROQ ЖООБУ:
-{groq_answer}
-
-GEMINI ЖООБУ:
-{gemini_answer}
-
-OPENAI ЖООБУ:
-{openai_answer}
-
-Милдетиң:
-
-1. Үч жоопту салыштыр.
-2. Каталарды тап.
-3. Реалдуу эмес киреше сандарын алып сал.
-4. Ойлоп чыгарылган фактыларды колдонбо.
-5. Эң пайдалуу маалыматтарды бириктир.
-6. Колдонуучуга түшүнүктүү кыргызча жооп бер.
-7. Керек болсо кадам-кадам көрсөт.
-8. Үч AI жөнүндө узун түшүндүрмө бербе.
-9. Акырында конкреттүү кийинки кадамды айт.
-
-Жоопту түздөн-түз колдонуучуга бер.
-"""
-
-    response = openai_client.chat.completions.create(
-        model=OPENAI_MODEL,
-        messages=[
-            {
-                "role": "system",
-                "content": prompt
-            },
-            {
-                "role": "user",
-                "content": user_text
-            }
-        ],
-        max_completion_tokens=8000
-    )
-
-    if not response.choices:
-        raise Exception("Final AI choices бош")
-
-    answer = response.choices[0].message.content
-
-    if not answer:
-        raise Exception("Final AI бош жооп берди")
-
-    return answer
-
-
-# =========================
-# LONG TELEGRAM MESSAGE
-# =========================
-
-async def send_long_message(update, text):
-
-    limit = 3900
-
-    if len(text) <= limit:
-        await update.message.reply_text(text)
-        return
-
-    while len(text) > limit:
-
-        cut = text.rfind(
-            "\n",
-            0,
-            limit
-        )
-
-        if cut < 1000:
-            cut = limit
-
-        part = text[:cut]
-
-        text = text[cut:].lstrip()
-
-        await update.message.reply_text(part)
-
-        await asyncio.sleep(0.3)
-
-    if text:
-        await update.message.reply_text(text)
-
-
-# =========================
-# START
-# =========================
-
-async def start(update, context):
-
-    await update.message.reply_text(
-        "🤖 AIAssist2026\n\n"
-        "Салам! Мен сенин жеке AI жардамчыңмын.\n\n"
-
-        "🧠 Memory — Эс тутум\n"
-        "🔵 Groq\n"
-        "🟢 Gemini\n"
-        "🟣 OpenAI\n\n"
-
-        "Үч AI жооп берип,\n"
-        "андан кийин бириктирилип\n"
-        "эң жакшы жооп түзүлөт.\n\n"
-
-        "/memory — эс тутумду көрүү\n"
-        "/clearmemory — эс тутумду тазалоо\n"
-        "/testapi — API текшерүү\n\n"
-
-        "Сурооңду жаза бер."
-    )
-
-
-# =========================
-# MEMORY COMMAND
-# =========================
-
-async def show_memory(update, context):
-
-    user_id = update.effective_user.id
-
-    user = get_user_memory(user_id)
-
-    facts = user.get("facts", [])
-    history = user.get("history", [])
-
-    await update.message.reply_text(
-        "🧠 СЕНИН MEMORY\n\n"
-        f"Маанилүү маалымат: {len(facts)}\n"
-        f"Сүйлөшүү: {len(history)}\n\n"
-        "Memory иштеп жатат."
-    )
-
-
-# =========================
-# CLEAR MEMORY
-# =========================
-
-async def clear_memory(update, context):
-
-    user_id = str(update.effective_user.id)
-
-    memory[user_id] = {
-        "facts": [],
-        "history": []
-    }
-
-    save_memory(memory)
-
-    await update.message.reply_text(
-        "🗑 Memory тазаланды."
-    )
-
-
-# =========================
-# CHAT
-# =========================
-
-async def chat(update, context):
-
-    user_text = update.message.text
-    user_id = update.effective_user.id
-
-    waiting = await update.message.reply_text(
-        "🧠 Үч AI иштеп жатат...\n\n"
-        "🔵 Groq\n"
-        "🟢 Gemini\n"
-        "🟣 OpenAI"
-    )
-
-    groq_answer = ""
-    gemini_answer = ""
-    openai_answer = ""
-
-    # =====================
-    # GROQ
-    # =====================
-
-    try:
-
-        groq_answer = await asyncio.to_thread(
-            ask_groq,
-            user_text,
-            user_id
-        )
-
-        print("🔵 GROQ: OK")
-
-    except Exception as e:
-
-        print("❌ GROQ ERROR:", repr(e))
-
-
-    # =====================
-    # GEMINI
-    # =====================
-
-    try:
-
-        gemini_answer = await asyncio.to_thread(
-            ask_gemini,
-            user_text,
-            user_id
-        )
-
-        print("🟢 GEMINI: OK")
-
-    except Exception as e:
-
-        print("❌ GEMINI ERROR:", repr(e))
-
-
-    # =====================
-    # OPENAI
-    # =====================
-
-    try:
-
-        openai_answer = await asyncio.to_thread(
-            ask_openai,
-            user_text,
-            user_id
-        )
-
-        print("🟣 OPENAI: OK")
-
-    except Exception as e:
-
-        print("❌ OPENAI ERROR:", repr(e))
-
-
-    # =====================
-    # CHECK
-    # =====================
-
-    answers = [
-        groq_answer,
-        gemini_answer,
-        openai_answer
-    ]
-
-    working_answers = [
-        x for x in answers if x
-    ]
-
-    if not working_answers:
-
-        await waiting.edit_text(
-            "❌ Үч AI тең жооп бере алган жок.\n\n"
-            "/testapi менен текшер."
-        )
-
-        return
-
-
-    # =====================
-    # FINAL ANSWER
-    # =====================
-
-    try:
-
-        final_answer = await asyncio.to_thread(
-            make_final_answer,
-            user_text,
-            groq_answer or "Жооп жок",
-            gemini_answer or "Жооп жок",
-            openai_answer or "Жооп жок"
-        )
-
-    except Exception as e:
-
-        print("❌ FINAL AI ERROR:", repr(e))
-
-        # OpenAI final жооп түзө албаса,
-        # биринчи иштеген AI жооп берет.
-
-        final_answer = working_answers[0]
-
-
-    await waiting.delete()
-
-    await send_long_message(
-        update,
-        "🧠 AIAssist2026\n\n"
-        + final_answer
-    )
-
-
-    # =====================
-    # SAVE MEMORY
-    # =====================
-
-    add_memory(
-        user_id,
-        user_text,
-        final_answer
-    )
-
-
-# =========================
-# TEST API
-# =========================
-
-async def test_api(update, context):
-
-    waiting = await update.message.reply_text(
-        "🔍 Үч API текшерилип жатат..."
-    )
-
-    groq_ok = False
-    gemini_ok = False
-    openai_ok = False
-
-    try:
-
-        await asyncio.to_thread(
-            ask_groq,
-            "Бир сөз менен жооп бер: ИШТЕДИ",
-            update.effective_user.id
-        )
-
-        groq_ok = True
-
-    except Exception as e:
-
-        print("GROQ TEST ERROR:", repr(e))
-
-
-    try:
-
-        await asyncio.to_thread(
-            ask_gemini,
-            "Бир сөз менен жооп бер: ИШТЕДИ",
-            update.effective_user.id
-        )
-
-        gemini_ok = True
-
-    except Exception as e:
-
-        print("GEMINI TEST ERROR:", repr(e))
-
-
-    try:
-
-        await asyncio.to_thread(
-            ask_openai,
-            "Бир сөз менен жооп бер: ИШТЕДИ",
-            update.effective_user.id
-        )
-
-        openai_ok = True
-
-    except Exception as e:
-
-        print("OPENAI TEST ERROR:", repr(e))
-
-
-    result = (
-        "🔍 API TEST ЖЫЙЫНТЫГЫ\n\n"
-
-        f"🔵 Groq: "
-        f"{'🟢 ИШТЕДИ' if groq_ok else '🔴 ERROR'}\n\n"
-
-        f"🟢 Gemini: "
-        f"{'🟢 ИШТЕДИ' if gemini_ok else '🔴 ERROR'}\n\n"
-
-        f"🟣 OpenAI: "
-        f"{'🟢 ИШТЕДИ' if openai_ok else '🔴 ERROR'}"
-    )
-
-    await waiting.edit_text(result)
-
-
-# =========================
-# MAIN
-# =========================
+# =========================================================
+# BOT START
+# =========================================================
 
 def main():
 
-    web_thread = threading.Thread(
-        target=start_web_server,
+    if not TELEGRAM_TOKEN:
+        raise Exception(
+            "TELEGRAM_TOKEN табылган жок!"
+        )
+
+    threading.Thread(
+        target=run_server,
         daemon=True
-    )
+    ).start()
 
-    web_thread.start()
+    app = Application.builder().token(
+        TELEGRAM_TOKEN
+    ).build()
 
-
-    app = (
-        Application.builder()
-        .token(TELEGRAM_TOKEN)
-        .build()
-    )
-
-
+    # Commands
     app.add_handler(
-        CommandHandler("start", start)
-    )
-
-    app.add_handler(
-        CommandHandler("memory", show_memory)
-    )
-
-    app.add_handler(
-        CommandHandler("clearmemory", clear_memory)
-    )
-
-    app.add_handler(
-        CommandHandler("testapi", test_api)
-    )
-
-    app.add_handler(
-        MessageHandler(
-            filters.TEXT & ~filters.COMMAND,
-            chat
+        CommandHandler(
+            "start",
+            start
         )
     )
 
+    app.add_handler(
+        CommandHandler(
+            "memory",
+            memory_command
+        )
+    )
 
-    print("")
-    print("======================================")
-    print("🤖 AIAssist2026")
-    print("🧠 MEMORY: ON")
-    print("🔵 GROQ: ON")
-    print("🟢 GEMINI: ON")
-    print("🟣 OPENAI: ON")
-    print("======================================")
+    app.add_handler(
+        CommandHandler(
+            "clearmemory",
+            clear_memory
+        )
+    )
 
+    app.add_handler(
+        CommandHandler(
+            "testapi",
+            test_api
+        )
+    )
+
+    # Messages
+    app.add_handler(
+        MessageHandler(
+            filters.TEXT & ~filters.COMMAND,
+            handle_message
+        )
+    )
+
+    print(
+        "🤖 AIAssist2026 Telegram AI бот иштеп жатат..."
+    )
 
     app.run_polling()
 
