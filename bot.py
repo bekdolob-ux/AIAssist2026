@@ -20,27 +20,32 @@ from google.cloud import firestore
 from google.oauth2 import service_account
 
 
-# =========================
+# ============================================================
 # ENV
-# =========================
+# ============================================================
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-GOOGLE_CREDENTIALS_JSON = os.getenv("GOOGLE_CREDENTIALS_JSON")
 
-FIRESTORE_DATABASE = "ai-studio-e7d6a6f3-8921-414c-887e-4b97383c7bed"
+GOOGLE_CREDENTIALS_JSON = os.getenv(
+    "GOOGLE_CREDENTIALS_JSON"
+)
+
+FIRESTORE_DATABASE = (
+    "ai-studio-e7d6a6f3-8921-414c-887e-4b97383c7bed"
+)
 
 GROQ_MODEL = "openai/gpt-oss-120b"
 GEMINI_MODEL = "gemini-3.8-flash"
 OPENAI_MODEL = "gpt-5-mini"
 
 
-# =========================
+# ============================================================
 # API CLIENTS
-# =========================
+# ============================================================
 
 groq_client = None
 gemini_client = None
@@ -49,27 +54,65 @@ db = None
 
 
 if GROQ_API_KEY:
-    groq_client = Groq(api_key=GROQ_API_KEY)
+    try:
+        groq_client = Groq(
+            api_key=GROQ_API_KEY
+        )
+        print("✅ GROQ CLIENT READY")
+    except Exception as e:
+        print(
+            "❌ GROQ INIT ERROR:",
+            repr(e)
+        )
+
 
 if GEMINI_API_KEY:
-    gemini_client = genai.Client(api_key=GEMINI_API_KEY)
+    try:
+        gemini_client = genai.Client(
+            api_key=GEMINI_API_KEY
+        )
+        print("✅ GEMINI CLIENT READY")
+    except Exception as e:
+        print(
+            "❌ GEMINI INIT ERROR:",
+            repr(e)
+        )
+
 
 if OPENAI_API_KEY:
-    openai_client = OpenAI(api_key=OPENAI_API_KEY)
+    try:
+        openai_client = OpenAI(
+            api_key=OPENAI_API_KEY
+        )
+        print("✅ OPENAI CLIENT READY")
+    except Exception as e:
+        print(
+            "❌ OPENAI INIT ERROR:",
+            repr(e)
+        )
 
 
-# =========================
+# ============================================================
 # FIRESTORE
-# =========================
+# ============================================================
 
 try:
+
     if not GOOGLE_CREDENTIALS_JSON:
-        raise Exception("GOOGLE_CREDENTIALS_JSON жок")
+        raise Exception(
+            "GOOGLE_CREDENTIALS_JSON жок"
+        )
 
-    credentials_info = json.loads(GOOGLE_CREDENTIALS_JSON)
+    credentials_info = json.loads(
+        GOOGLE_CREDENTIALS_JSON
+    )
 
-    credentials = service_account.Credentials.from_service_account_info(
-        credentials_info
+    credentials = (
+        service_account
+        .Credentials
+        .from_service_account_info(
+            credentials_info
+        )
     )
 
     db = firestore.Client(
@@ -81,21 +124,33 @@ try:
     print("✅ FIRESTORE CLIENT READY")
 
 except Exception as e:
-    print("❌ FIRESTORE INIT ERROR:", repr(e))
+
+    print(
+        "❌ FIRESTORE INIT ERROR:",
+        repr(e)
+    )
+
     db = None
 
 
-# =========================
-# MEMORY FUNCTIONS
-# =========================
+# ============================================================
+# FIRESTORE USER REFERENCE
+# ============================================================
 
 def get_user_ref(user_id):
 
     if db is None:
         return None
 
-    return db.collection("users").document(str(user_id))
+    return (
+        db.collection("users")
+        .document(str(user_id))
+    )
 
+
+# ============================================================
+# LOAD NORMAL MEMORY
+# ============================================================
 
 def load_memory(user_id):
 
@@ -113,16 +168,70 @@ def load_memory(user_id):
 
         data = doc.to_dict() or {}
 
-        return data.get("history", [])
+        return data.get(
+            "history",
+            []
+        )
 
     except Exception as e:
 
-        print("❌ MEMORY LOAD ERROR:", repr(e))
+        print(
+            "❌ MEMORY LOAD ERROR:",
+            repr(e)
+        )
 
         return []
 
 
-def save_memory(user_id, user_text, ai_text):
+# ============================================================
+# LOAD IMPORTANT MEMORY
+# ============================================================
+
+def load_important_memory(user_id):
+
+    try:
+
+        ref = get_user_ref(user_id)
+
+        if ref is None:
+            return []
+
+        doc = ref.get()
+
+        if not doc.exists:
+            return []
+
+        data = doc.to_dict() or {}
+
+        memory = data.get(
+            "important_memory",
+            []
+        )
+
+        if not isinstance(memory, list):
+            return []
+
+        return memory
+
+    except Exception as e:
+
+        print(
+            "❌ IMPORTANT MEMORY LOAD ERROR:",
+            repr(e)
+        )
+
+        return []
+
+
+# ============================================================
+# SAVE NORMAL MEMORY
+# ============================================================
+
+def save_memory(
+    user_id,
+    user_text,
+    ai_text
+):
 
     try:
 
@@ -130,7 +239,9 @@ def save_memory(user_id, user_text, ai_text):
 
         if ref is None:
 
-            print("❌ MEMORY SAVE: Firestore unavailable")
+            print(
+                "❌ MEMORY SAVE: Firestore unavailable"
+            )
 
             return False
 
@@ -140,7 +251,10 @@ def save_memory(user_id, user_text, ai_text):
 
             data = doc.to_dict() or {}
 
-            history = data.get("history", [])
+            history = data.get(
+                "history",
+                []
+            )
 
         else:
 
@@ -154,21 +268,25 @@ def save_memory(user_id, user_text, ai_text):
 
         })
 
-        # Акыркы 50 диалог сакталат
+        # Акыркы 50 диалог
         history = history[-50:]
 
         ref.set({
 
-            "telegram_user_id": str(user_id),
+            "telegram_user_id":
+                str(user_id),
 
-            "history": history,
+            "history":
+                history,
 
-            "updated": firestore.SERVER_TIMESTAMP
+            "updated":
+                firestore.SERVER_TIMESTAMP
 
-        })
+        }, merge=True)
 
         print(
-            f"🧠 MEMORY SAVED: user={user_id}, "
+            f"🧠 MEMORY SAVED: "
+            f"user={user_id}, "
             f"dialogs={len(history)}"
         )
 
@@ -176,10 +294,119 @@ def save_memory(user_id, user_text, ai_text):
 
     except Exception as e:
 
-        print("❌ MEMORY SAVE ERROR:", repr(e))
+        print(
+            "❌ MEMORY SAVE ERROR:",
+            repr(e)
+        )
 
         return False
 
+
+# ============================================================
+# SAVE IMPORTANT MEMORY
+# ============================================================
+
+def save_important_memory(
+    user_id,
+    new_memories
+):
+
+    try:
+
+        ref = get_user_ref(user_id)
+
+        if ref is None:
+            return False
+
+        if not new_memories:
+            return False
+
+        if not isinstance(
+            new_memories,
+            list
+        ):
+            return False
+
+        doc = ref.get()
+
+        if doc.exists:
+
+            data = doc.to_dict() or {}
+
+            old_memory = data.get(
+                "important_memory",
+                []
+            )
+
+        else:
+
+            old_memory = []
+
+        if not isinstance(
+            old_memory,
+            list
+        ):
+            old_memory = []
+
+
+        # Жаңы маанилүү маалыматтарды кошуу
+        for item in new_memories:
+
+            if not item:
+                continue
+
+            item = str(item).strip()
+
+            if not item:
+                continue
+
+            # Дубликатты кошпойбуз
+            if item not in old_memory:
+
+                old_memory.append(
+                    item
+                )
+
+
+        # Өтө чоң болуп кетпесин
+        old_memory = old_memory[-100:]
+
+
+        ref.set({
+
+            "telegram_user_id":
+                str(user_id),
+
+            "important_memory":
+                old_memory,
+
+            "updated":
+                firestore.SERVER_TIMESTAMP
+
+        }, merge=True)
+
+
+        print(
+            f"⭐ IMPORTANT MEMORY SAVED: "
+            f"user={user_id}, "
+            f"items={len(old_memory)}"
+        )
+
+        return True
+
+    except Exception as e:
+
+        print(
+            "❌ IMPORTANT MEMORY SAVE ERROR:",
+            repr(e)
+        )
+
+        return False
+
+
+# ============================================================
+# CLEAR MEMORY
+# ============================================================
 
 def clear_memory(user_id):
 
@@ -192,28 +419,235 @@ def clear_memory(user_id):
 
         ref.set({
 
-            "telegram_user_id": str(user_id),
+            "telegram_user_id":
+                str(user_id),
 
-            "history": [],
+            "history":
+                [],
 
-            "updated": firestore.SERVER_TIMESTAMP
+            "important_memory":
+                [],
 
-        })
+            "updated":
+                firestore.SERVER_TIMESTAMP
 
-        print(f"🧹 MEMORY CLEARED: {user_id}")
+        }, merge=True)
+
+        print(
+            f"🧹 MEMORY CLEARED: {user_id}"
+        )
 
         return True
 
     except Exception as e:
 
-        print("❌ MEMORY CLEAR ERROR:", repr(e))
+        print(
+            "❌ MEMORY CLEAR ERROR:",
+            repr(e)
+        )
 
         return False
 
 
-# =========================
-# AI FUNCTIONS
-# =========================
+# ============================================================
+# IMPORTANT MEMORY EXTRACTION
+# ============================================================
+
+def extract_important_memory(
+    user_text,
+    ai_text
+):
+
+    prompt = f"""
+Сен жеке AI жардамчынын Memory системасысың.
+
+Төмөнкү сүйлөшүүдөн КЕЛЕЧЕКТЕ дагы пайдалуу боло турган
+туруктуу маалыматтарды гана аныкта.
+
+Маанилүү маалыматтар:
+- узак мөөнөттүү максаттар
+- киреше/карьера максаттары
+- долбоорлор
+- үйрөнүп жаткан нерселер
+- туруктуу кызыгуулар
+- жеке артыкчылыктар
+- иштөө стили
+- AI жардамчыга байланыштуу туруктуу талаптар
+
+Маанилүү ЭМЕС:
+- жөнөкөй суроолор
+- убактылуу маанай
+- бир жолку тапшырма
+- жалпы билим
+- AI берген сунуштар
+- сырсөздөр
+- API key
+- токендер
+- жеке кооптуу маалыматтар
+
+ТЕК ГАНА JSON массив кайтар.
+
+Мисалы:
+["Максат: айына 100 000 сом киреше табуу",
+ "Долбоор: AIAssist2026"]
+
+Эгер маанилүү маалымат жок болсо:
+[]
+
+Колдонуучу:
+{user_text}
+
+AI:
+{ai_text}
+"""
+
+    # Extraction үчүн Groq колдонобуз
+    try:
+
+        if groq_client:
+
+            response = groq_client.chat.completions.create(
+
+                model=GROQ_MODEL,
+
+                messages=[
+
+                    {
+                        "role": "system",
+                        "content": (
+                            "Сен Memory extractorсиң. "
+                            "Ар дайым valid JSON array гана кайтар."
+                        )
+                    },
+
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+
+                ],
+
+                temperature=0
+
+            )
+
+            result = (
+                response
+                .choices[0]
+                .message
+                .content
+            )
+
+            if not result:
+                return []
+
+            result = result.strip()
+
+            # Markdown ```json ... ``` болсо тазалайбыз
+            if result.startswith(
+                "```"
+            ):
+
+                result = (
+                    result
+                    .replace(
+                        "```json",
+                        ""
+                    )
+                    .replace(
+                        "```",
+                        ""
+                    )
+                    .strip()
+                )
+
+            parsed = json.loads(
+                result
+            )
+
+            if isinstance(
+                parsed,
+                list
+            ):
+
+                return [
+                    str(x).strip()
+                    for x in parsed
+                    if str(x).strip()
+                ]
+
+    except Exception as e:
+
+        print(
+            "⚠️ MEMORY EXTRACTION ERROR:",
+            repr(e)
+        )
+
+    return []
+
+
+# ============================================================
+# BUILD MEMORY CONTEXT
+# ============================================================
+
+def build_memory_context(
+    user_id
+):
+
+    important = load_important_memory(
+        user_id
+    )
+
+    history = load_memory(
+        user_id
+    )
+
+    text = ""
+
+
+    # Маанилүү Memory
+    if important:
+
+        text += (
+            "\n\n⭐ УЗАК МӨӨНӨТТҮҮ "
+            "МААНИЛҮҮ MEMORY:\n"
+        )
+
+        for item in important[-100:]:
+
+            text += (
+                f"- {item}\n"
+            )
+
+
+    # Акыркы диалогдор
+    if history:
+
+        recent = history[-10:]
+
+        text += (
+            "\n\n🧠 АКЫРКЫ "
+            "СҮЙЛӨШҮҮЛӨРДӨН КОНТЕКСТ:\n"
+        )
+
+        for item in recent:
+
+            text += (
+
+                f"Колдонуучу: "
+                f"{item.get('user', '')}\n"
+
+                f"AI: "
+                f"{item.get('assistant', '')}\n"
+
+            )
+
+    return text
+
+
+# ============================================================
+# GROQ
+# ============================================================
 
 def ask_groq(prompt):
 
@@ -233,9 +667,18 @@ def ask_groq(prompt):
                     "role": "system",
 
                     "content": (
-                        "Сен Бекболоттун жеке AI жардамчысысың. "
-                        "Негизги максат — анын жеке кирешесин көбөйтүүгө "
-                        "жардам берүү. Практикалык жана түшүнүктүү жооп бер."
+                        "Сен Бекболоттун жеке AI "
+                        "жардамчысысың. "
+                        "Сенин негизги максатың — "
+                        "анын кирешесин көбөйтүүгө "
+                        "жана жеке өнүгүүсүнө жардам берүү. "
+                        "Мурунку Memory маалыматтарын "
+                        "эске ал. "
+                        "Практикалык, так жана түшүнүктүү "
+                        "жооп бер. "
+                        "Эгер контекстте маанилүү "
+                        "маалымат болсо, аны "
+                        "тиешелүү учурда колдон."
                     )
 
                 },
@@ -254,14 +697,26 @@ def ask_groq(prompt):
 
         )
 
-        return response.choices[0].message.content
+        return (
+            response
+            .choices[0]
+            .message
+            .content
+        )
 
     except Exception as e:
 
-        print("❌ GROQ ERROR:", repr(e))
+        print(
+            "❌ GROQ ERROR:",
+            repr(e)
+        )
 
         return None
 
+
+# ============================================================
+# GEMINI
+# ============================================================
 
 def ask_gemini(prompt):
 
@@ -270,12 +725,16 @@ def ask_gemini(prompt):
 
     try:
 
-        response = gemini_client.models.generate_content(
+        response = (
+            gemini_client
+            .models
+            .generate_content(
 
-            model=GEMINI_MODEL,
+                model=GEMINI_MODEL,
 
-            contents=prompt
+                contents=prompt
 
+            )
         )
 
         if response and response.text:
@@ -284,10 +743,17 @@ def ask_gemini(prompt):
 
     except Exception as e:
 
-        print("❌ GEMINI ERROR:", repr(e))
+        print(
+            "❌ GEMINI ERROR:",
+            repr(e)
+        )
 
     return None
 
+
+# ============================================================
+# OPENAI
+# ============================================================
 
 def ask_openai(prompt):
 
@@ -296,173 +762,120 @@ def ask_openai(prompt):
 
     try:
 
-        response = openai_client.responses.create(
+        response = (
+            openai_client
+            .responses
+            .create(
 
-            model=OPENAI_MODEL,
+                model=OPENAI_MODEL,
 
-            input=(
-                "Сен Бекболоттун жеке AI жардамчысысың. "
-                "Практикалык, так жана пайдалуу жооп бер.\n\n"
-                + prompt
+                input=(
+
+                    "Сен Бекболоттун жеке AI "
+                    "жардамчысысың. "
+                    "Практикалык, так жана "
+                    "пайдалуу жооп бер.\n\n"
+
+                    + prompt
+
+                )
+
             )
-
         )
 
         return response.output_text
 
     except Exception as e:
 
-        print("❌ OPENAI ERROR:", repr(e))
+        print(
+            "❌ OPENAI ERROR:",
+            repr(e)
+        )
 
         return None
 
 
-# =========================
+# ============================================================
 # AI ROUTER
-# =========================
+# ============================================================
 
 def ask_ai(prompt):
 
     # 1. Groq
 
-    answer = ask_groq(prompt)
+    answer = ask_groq(
+        prompt
+    )
 
     if answer:
 
-        print("🔵 Groq → OK")
+        print(
+            "🔵 Groq → OK"
+        )
 
         return answer
 
 
     # 2. Gemini
 
-    answer = ask_gemini(prompt)
+    answer = ask_gemini(
+        prompt
+    )
 
     if answer:
 
-        print("🟢 Gemini → OK")
+        print(
+            "🟢 Gemini → OK"
+        )
 
         return answer
 
 
     # 3. OpenAI
 
-    answer = ask_openai(prompt)
+    answer = ask_openai(
+        prompt
+    )
 
     if answer:
 
-        print("🟣 OpenAI → OK")
+        print(
+            "🟣 OpenAI → OK"
+        )
 
         return answer
 
 
-    return "❌ Азыр AI кызматтарынын баары жооп берген жок."
+    return (
+        "❌ Азыр AI кызматтарынын "
+        "баары жооп берген жок."
+    )
 
 
-# =========================
-# MESSAGE
-# =========================
+# ============================================================
+# TELEGRAM LONG MESSAGE
+# ============================================================
 
-async def handle_message(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE
+async def send_long_message(
+    update,
+    text
 ):
 
-    if not update.message or not update.message.text:
+    if not text:
 
-        return
-
-    user_id = update.effective_user.id
-
-    user_text = update.message.text.strip()
-
-    print(
-        f"📩 USER {user_id}: {user_text}"
-    )
-
-
-    # =========================
-    # ЭСКИ MEMORY
-    # =========================
-
-    history = load_memory(user_id)
-
-    memory_text = ""
-
-    if history:
-
-        recent = history[-10:]
-
-        memory_text = (
-            "\n\nМурунку сүйлөшүүдөн контекст:\n"
-        )
-
-        for item in recent:
-
-            memory_text += (
-
-                f"Колдонуучу: "
-                f"{item.get('user', '')}\n"
-
-                f"AI: "
-                f"{item.get('assistant', '')}\n"
-
-            )
-
-
-    # =========================
-    # PROMPT
-    # =========================
-
-    prompt = f"""
-
-{memory_text}
-
-Жаңы билдирүү:
-
-{user_text}
-
-Колдонуучуга түз жооп бер.
-
-"""
-
-
-    # =========================
-    # AI
-    # =========================
-
-    answer = await asyncio.to_thread(
-
-        ask_ai,
-
-        prompt
-
-    )
-
-
-    # =========================
-    # TELEGRAM RESPONSE
-    # =========================
-
-    if not answer:
-
-        answer = (
+        text = (
             "❌ AI бош жооп кайтарды."
         )
-
-
-    # Telegram бир билдирүүгө чектөө коёт.
-    # Узун жооп автоматтык түрдө бөлүнөт.
 
     MAX_MESSAGE_LENGTH = 4000
 
     for i in range(
         0,
-        len(answer),
+        len(text),
         MAX_MESSAGE_LENGTH
     ):
 
-        chunk = answer[
+        chunk = text[
             i:i + MAX_MESSAGE_LENGTH
         ]
 
@@ -471,9 +884,104 @@ async def handle_message(
         )
 
 
-    # =========================
-    # AUTOMATIC MEMORY
-    # =========================
+# ============================================================
+# MESSAGE HANDLER
+# ============================================================
+
+async def handle_message(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
+    if (
+        not update.message
+        or not update.message.text
+    ):
+
+        return
+
+
+    user_id = (
+        update
+        .effective_user
+        .id
+    )
+
+    user_text = (
+        update
+        .message
+        .text
+        .strip()
+    )
+
+
+    print(
+        f"📩 USER {user_id}: "
+        f"{user_text}"
+    )
+
+
+    # ========================================================
+    # MEMORY CONTEXT
+    # ========================================================
+
+    memory_context = (
+        await asyncio.to_thread(
+            build_memory_context,
+            user_id
+        )
+    )
+
+
+    # ========================================================
+    # PROMPT
+    # ========================================================
+
+    prompt = f"""
+
+Сенин колдонуучуң Бекболот.
+
+Төмөндө анын Memory маалыматтары берилген.
+
+{memory_context}
+
+ЖАҢЫ БИЛДИРҮҮ:
+
+{user_text}
+
+Эрежелер:
+1. Memory'деги маалыматты туура колдон.
+2. Билбеген нерсени ойлоп чыгарба.
+3. Колдонуучуга түз жана пайдалуу жооп бер.
+4. Кыргыз тилинде жооп бер, эгер башка тил суралбаса.
+5. Ашыкча узартпа, бирок керектүү деталдарды бер.
+
+"""
+
+
+    # ========================================================
+    # AI
+    # ========================================================
+
+    answer = await asyncio.to_thread(
+        ask_ai,
+        prompt
+    )
+
+
+    # ========================================================
+    # TELEGRAM RESPONSE
+    # ========================================================
+
+    await send_long_message(
+        update,
+        answer
+    )
+
+
+    # ========================================================
+    # NORMAL MEMORY SAVE
+    # ========================================================
 
     saved = await asyncio.to_thread(
 
@@ -501,9 +1009,48 @@ async def handle_message(
         )
 
 
-# =========================
+    # ========================================================
+    # IMPORTANT MEMORY EXTRACTION
+    # ========================================================
+
+    important = await asyncio.to_thread(
+
+        extract_important_memory,
+
+        user_text,
+
+        answer
+
+    )
+
+
+    if important:
+
+        saved_important = (
+            await asyncio.to_thread(
+                save_important_memory,
+                user_id,
+                important
+            )
+        )
+
+        if saved_important:
+
+            print(
+                "⭐ Маанилүү Memory "
+                "автоматтык сакталды:"
+            )
+
+            for item in important:
+
+                print(
+                    f"   • {item}"
+                )
+
+
+# ============================================================
 # /START
-# =========================
+# ============================================================
 
 async def start(
     update: Update,
@@ -514,13 +1061,19 @@ async def start(
 
         "🤖 Салам, Бекболот!\n\n"
 
-        "Мен сенин жеке AI жардамчыңмын.\n"
+        "Мен сенин жеке AI жардамчыңмын.\n\n"
 
-        "🧠 Сүйлөшүүлөрдү эске сактайм.\n"
+        "🧠 Normal Memory — "
+        "сүйлөшүүлөрдү сактайт.\n"
 
-        "💰 Негизги максат — жеке кирешеңди көбөйтүү.\n\n"
+        "⭐ Important Memory — "
+        "маанилүү маалыматтарды "
+        "автоматтык түрдө бөлүп сактайт.\n\n"
 
-        "/memory — эсте сакталган маалымат\n"
+        "💰 Негизги максат — "
+        "кирешеңди көбөйтүүгө жардам берүү.\n\n"
+
+        "/memory — Memory абалы\n"
 
         "/clearmemory — Memory тазалоо\n"
 
@@ -529,407 +1082,15 @@ async def start(
     )
 
 
-# =========================
+# ============================================================
 # /MEMORY
-# =========================
+# ============================================================
 
 async def memory_command(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE
 ):
 
-    user_id = update.effective_user.id
-
-    history = await asyncio.to_thread(
-
-        load_memory,
-
-        user_id
-
-    )
-
-
-    if not history:
-
-        await update.message.reply_text(
-
-            "🧠 Memory азырынча бош."
-
-        )
-
-        return
-
-
-    await update.message.reply_text(
-
-        f"🧠 Memory иштеп жатат!\n\n"
-
-        f"💾 Сакталган диалогдор: "
-        f"{len(history)}\n"
-
-        f"👤 User ID: "
-        f"{user_id}"
-
-    )
-
-
-# =========================
-# /CLEARMEMORY
-# =========================
-
-async def clear_memory_command(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE
-):
-
-    user_id = update.effective_user.id
-
-    success = await asyncio.to_thread(
-
-        clear_memory,
-
-        user_id
-
-    )
-
-
-    if success:
-
-        await update.message.reply_text(
-
-            "🧹 Memory тазаланды."
-
-        )
-
-    else:
-
-        await update.message.reply_text(
-
-            "❌ Memory тазаланган жок."
-
-        )
-
-
-# =========================
-# /TESTAPI
-# =========================
-
-async def test_api(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE
-):
-
-    msg = await update.message.reply_text(
-
-        "🔍 API TEST башталды..."
-
-    )
-
-
-    # =========================
-    # GROQ
-    # =========================
-
-    groq_ok = False
-
-    try:
-
-        result = await asyncio.to_thread(
-
-            ask_groq,
-
-            "Жөн гана OK деп жооп бер."
-
-        )
-
-        groq_ok = bool(result)
-
-    except Exception:
-
-        pass
-
-
-    # =========================
-    # GEMINI
-    # =========================
-
-    gemini_ok = False
-
-    try:
-
-        result = await asyncio.to_thread(
-
-            ask_gemini,
-
-            "Жөн гана OK деп жооп бер."
-
-        )
-
-        gemini_ok = bool(result)
-
-    except Exception:
-
-        pass
-
-
-    # =========================
-    # OPENAI
-    # =========================
-
-    openai_ok = False
-
-    try:
-
-        result = await asyncio.to_thread(
-
-            ask_openai,
-
-            "Жөн гана OK деп жооп бер."
-
-        )
-
-        openai_ok = bool(result)
-
-    except Exception:
-
-        pass
-
-
-    # =========================
-    # FIRESTORE
-    # =========================
-
-    firestore_ok = False
-
-    try:
-
-        if db is not None:
-
-            test_ref = db.collection(
-
-                "_system_test"
-
-            ).document("test")
-
-
-            test_ref.set({
-
-                "status": "OK",
-
-                "timestamp":
-                    firestore.SERVER_TIMESTAMP
-
-            })
-
-
-            firestore_ok = True
-
-    except Exception as e:
-
-        print(
-            "❌ FIRESTORE TEST ERROR:",
-            repr(e)
-        )
-
-
-    # =========================
-    # RESULT
-    # =========================
-
-    result = (
-
-        "🔍 API TEST\n\n"
-
-        f"🔵 Groq: "
-        f"{'🟢 OK' if groq_ok else '🔴 ERROR'}\n"
-
-        f"🟢 Gemini: "
-        f"{'🟢 OK' if gemini_ok else '🔴 ERROR'}\n"
-
-        f"🟣 OpenAI: "
-        f"{'🟢 OK' if openai_ok else '🔴 ERROR'}\n"
-
-        f"🟡 Firestore: "
-        f"{'🟢 OK' if firestore_ok else '🔴 ERROR'}"
-
-    )
-
-
-    await msg.edit_text(result)
-
-
-# =========================
-# HEALTH SERVER
-# =========================
-
-class HealthHandler(
-    BaseHTTPRequestHandler
-):
-
-    def do_GET(self):
-
-        self.send_response(200)
-
-        self.send_header(
-            "Content-Type",
-            "text/plain"
-        )
-
-        self.end_headers()
-
-        self.wfile.write(
-            b"AIAssist2026 is running!"
-        )
-
-
-    def log_message(
-        self,
-        format,
-        *args
-    ):
-
-        return
-
-
-def run_health_server():
-
-    port = int(
-        os.getenv(
-            "PORT",
-            "10000"
-        )
-    )
-
-
-    server = HTTPServer(
-
-        ("0.0.0.0", port),
-
-        HealthHandler
-
-    )
-
-
-    print(
-        f"🌐 Health server running "
-        f"on port {port}"
-    )
-
-
-    server.serve_forever()
-
-
-# =========================
-# MAIN
-# =========================
-
-def main():
-
-    if not TELEGRAM_TOKEN:
-
-        raise Exception(
-            "TELEGRAM_TOKEN жок!"
-        )
-
-
-    # Render health server
-
-    Thread(
-
-        target=run_health_server,
-
-        daemon=True
-
-    ).start()
-
-
-    # Telegram application
-
-    app = Application.builder().token(
-
-        TELEGRAM_TOKEN
-
-    ).build()
-
-
-    # Commands
-
-    app.add_handler(
-
-        CommandHandler(
-            "start",
-            start
-        )
-
-    )
-
-
-    app.add_handler(
-
-        CommandHandler(
-            "memory",
-            memory_command
-        )
-
-    )
-
-
-    app.add_handler(
-
-        CommandHandler(
-            "clearmemory",
-            clear_memory_command
-        )
-
-    )
-
-
-    app.add_handler(
-
-        CommandHandler(
-            "testapi",
-            test_api
-        )
-
-    )
-
-
-    # Normal messages
-
-    app.add_handler(
-
-        MessageHandler(
-
-            filters.TEXT
-            & ~filters.COMMAND,
-
-            handle_message
-
-        )
-
-    )
-
-
-    print(
-        "🤖 AIAssist2026 иштеп жатат!"
-    )
-
-    print(
-        "🧠 Automatic Memory ENABLED"
-    )
-
-
-    app.run_polling(
-
-        drop_pending_updates=True
-
-    )
-
-
-# =========================
-# RUN
-# =========================
-
-if __name__ == "__main__":
-
-    main()
+    user_id = (
+        update
+        .eff
