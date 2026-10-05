@@ -1,5 +1,7 @@
 import asyncio
 import os
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
 from google import genai
 from groq import Groq
@@ -15,9 +17,9 @@ from telegram.ext import (
 )
 
 
-# ==================================================
-# 🔐 API KEYS — SERVER ENVIRONMENT
-# ==================================================
+# ==============================
+# API KEYS
+# ==============================
 
 TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
 GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
@@ -25,35 +27,87 @@ GROQ_API_KEY = os.environ["GROQ_API_KEY"]
 OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
 
 
-# ==================================================
-# 🤖 MODELS
-# ==================================================
+# ==============================
+# MODELS
+# ==============================
 
-GEMINI_MODEL = "gemini-3.8-flash"
+GEMINI_MODEL = "gemini-2.5-flash"
 GROQ_MODEL = "openai/gpt-oss-120b"
 OPENAI_MODEL = "gpt-5-mini"
 
 
-# ==================================================
-# CLIENTS
-# ==================================================
+# ==============================
+# AI CLIENTS
+# ==============================
 
-gemini = genai.Client(
-    api_key=GEMINI_API_KEY
-)
-
-groq = Groq(
-    api_key=GROQ_API_KEY
-)
-
-openai_client = OpenAI(
-    api_key=OPENAI_API_KEY
-)
+gemini = genai.Client(api_key=GEMINI_API_KEY)
+groq = Groq(api_key=GROQ_API_KEY)
+openai_client = OpenAI(api_key=OPENAI_API_KEY)
 
 
-# ==================================================
-# TELEGRAM LONG MESSAGE
-# ==================================================
+# ==============================
+# SYSTEM PROMPT
+# ==============================
+
+SYSTEM_PROMPT = """
+Сен күчтүү жеке AI жардамчысың.
+
+Колдонуучу кайсы тилде жазса,
+ошол тилде жооп бер.
+
+Кыргызча суроого кыргызча жооп бер.
+Орусча суроого орусча жооп бер.
+Англисче суроого англисче жооп бер.
+
+Татаал суроолордо:
+- конкреттүү кадамдарды бер
+- сандарды колдон
+- мисал келтир
+- артыкчылык тартибин көрсөт
+- тобокелдиктерди айт
+
+Жөн гана жалпы кеңеш менен чектелбе.
+Пайдалуу жана практикалык жооп бер.
+
+Негизги максат:
+колдонуучуга кирешесин көбөйтүүгө,
+кесиптик өсүүгө жана практикалык иштерди
+аткарууга жардам берүү.
+"""
+
+
+# ==============================
+# RENDER PORT SERVER
+# ==============================
+
+class HealthHandler(BaseHTTPRequestHandler):
+
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain")
+        self.end_headers()
+        self.wfile.write(b"AIAssist2026 is running!")
+
+    def log_message(self, format, *args):
+        return
+
+
+def start_web_server():
+    port = int(os.environ.get("PORT", 10000))
+
+    server = HTTPServer(
+        ("0.0.0.0", port),
+        HealthHandler
+    )
+
+    print(f"🌐 Web server PORT: {port}")
+
+    server.serve_forever()
+
+
+# ==============================
+# LONG MESSAGE
+# ==============================
 
 async def send_long_message(update: Update, text: str):
 
@@ -81,53 +135,9 @@ async def send_long_message(update: Update, text: str):
         await update.message.reply_text(text)
 
 
-# ==================================================
-# SYSTEM PROMPT
-# ==================================================
-
-SYSTEM_PROMPT = """
-Сен күчтүү жеке AI жардамчысың.
-
-Колдонуучу кайсы тилде жазса,
-ошол тилде жооп бер.
-
-Кыргызча суроого кыргызча жооп бер.
-Орусча суроого орусча жооп бер.
-Англисче суроого англисче жооп бер.
-
-Татаал суроолордо:
-- конкреттүү кадамдарды бер
-- сандарды колдон
-- мисал келтир
-- артыкчылык тартибин көрсөт
-- тобокелдиктерди айт
-
-Жөн гана жалпы кеңеш менен чектелбе.
-Пайдалуу жана практикалык жооп бер.
-"""
-
-
-# ==================================================
-# /START
-# ==================================================
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-    await update.message.reply_text(
-        "🤖 AIAssist2026\n\n"
-        "Салам! Мен сенин жеке AI жардамчыңмын.\n\n"
-        "🔵 Groq\n"
-        "🟢 Gemini\n"
-        "🟣 OpenAI\n\n"
-        "Үч AI системасы туташкан.\n\n"
-        "Сурооңду жаза бер.\n\n"
-        "/testapi — үч API'ни текшерүү"
-    )
-
-
-# ==================================================
-# 🔵 GROQ
-# ==================================================
+# ==============================
+# GROQ
+# ==============================
 
 def ask_groq(text):
 
@@ -158,9 +168,9 @@ def ask_groq(text):
     return answer
 
 
-# ==================================================
-# 🟢 GEMINI
-# ==================================================
+# ==============================
+# GEMINI
+# ==============================
 
 def ask_gemini(text):
 
@@ -175,9 +185,9 @@ def ask_gemini(text):
     return response.text
 
 
-# ==================================================
-# 🟣 OPENAI
-# ==================================================
+# ==============================
+# OPENAI
+# ==============================
 
 def ask_openai(text):
 
@@ -208,9 +218,27 @@ def ask_openai(text):
     return answer
 
 
-# ==================================================
-# 💬 CHAT
-# ==================================================
+# ==============================
+# START COMMAND
+# ==============================
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    await update.message.reply_text(
+        "🤖 AIAssist2026\n\n"
+        "Салам! Мен сенин жеке AI жардамчыңмын.\n\n"
+        "🔵 Groq\n"
+        "🟢 Gemini\n"
+        "🟣 OpenAI\n\n"
+        "Үч AI системасы туташкан.\n\n"
+        "Сурооңду жаза бер.\n\n"
+        "/testapi — үч API'ни текшерүү"
+    )
+
+
+# ==============================
+# CHAT
+# ==============================
 
 async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
@@ -220,10 +248,7 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🧠 AI ойлонуп жатат..."
     )
 
-
-    # ==================================================
-    # 1️⃣ GROQ
-    # ==================================================
+    # GROQ
 
     try:
 
@@ -252,9 +277,7 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
-    # ==================================================
-    # 2️⃣ GEMINI
-    # ==================================================
+    # GEMINI
 
     try:
 
@@ -283,9 +306,7 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
-    # ==================================================
-    # 3️⃣ OPENAI
-    # ==================================================
+    # OPENAI
 
     try:
 
@@ -314,9 +335,9 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
-# ==================================================
-# 🔍 API TEST
-# ==================================================
+# ==============================
+# API TEST
+# ==============================
 
 async def test_api(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
@@ -329,9 +350,7 @@ async def test_api(update: Update, context: ContextTypes.DEFAULT_TYPE):
     openai_ok = False
 
 
-    # -------------------------------
-    # GROQ
-    # -------------------------------
+    # GROQ TEST
 
     try:
 
@@ -350,9 +369,7 @@ async def test_api(update: Update, context: ContextTypes.DEFAULT_TYPE):
         print(repr(e))
 
 
-    # -------------------------------
-    # GEMINI
-    # -------------------------------
+    # GEMINI TEST
 
     try:
 
@@ -371,9 +388,7 @@ async def test_api(update: Update, context: ContextTypes.DEFAULT_TYPE):
         print(repr(e))
 
 
-    # -------------------------------
-    # OPENAI
-    # -------------------------------
+    # OPENAI TEST
 
     try:
 
@@ -392,16 +407,15 @@ async def test_api(update: Update, context: ContextTypes.DEFAULT_TYPE):
         print(repr(e))
 
 
-    # -------------------------------
-    # RESULT
-    # -------------------------------
-
     result = (
         "🔍 API TEST ЖЫЙЫНТЫГЫ\n\n"
+
         f"🔵 Groq: "
         f"{'🟢 ИШТЕДИ' if groq_ok else '🔴 ERROR'}\n\n"
+
         f"🟢 Gemini: "
         f"{'🟢 ИШТЕДИ' if gemini_ok else '🔴 ERROR'}\n\n"
+
         f"🟣 OpenAI: "
         f"{'🟢 ИШТЕДИ' if openai_ok else '🔴 ERROR'}"
     )
@@ -409,32 +423,37 @@ async def test_api(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await waiting.edit_text(result)
 
 
-# ==================================================
-# 🚀 MAIN
-# ==================================================
+# ==============================
+# MAIN
+# ==============================
 
 def main():
 
-    app = Application.builder().token(
-        TELEGRAM_TOKEN
-    ).build()
+    # Render web server
+    web_thread = threading.Thread(
+        target=start_web_server,
+        daemon=True
+    )
+
+    web_thread.start()
 
 
-    app.add_handler(
-        CommandHandler(
-            "start",
-            start
-        )
+    # Telegram bot
+    app = (
+        Application
+        .builder()
+        .token(TELEGRAM_TOKEN)
+        .build()
     )
 
 
     app.add_handler(
-        CommandHandler(
-            "testapi",
-            test_api
-        )
+        CommandHandler("start", start)
     )
 
+    app.add_handler(
+        CommandHandler("testapi", test_api)
+    )
 
     app.add_handler(
         MessageHandler(
@@ -446,18 +465,20 @@ def main():
 
     print("")
     print("======================================")
-    print("🤖 AIAssist2026_bot иштеп жатат")
+    print("🤖 AIAssist2026 БОТ ИШТЕП ЖАТАТ")
+    print("======================================")
     print("🔵 Groq:", GROQ_MODEL)
     print("🟢 Gemini:", GEMINI_MODEL)
     print("🟣 OpenAI:", OPENAI_MODEL)
     print("======================================")
-    print("")
 
 
     app.run_polling()
 
 
-# ==================================================
+# ==============================
+# RUN
+# ==============================
 
 if __name__ == "__main__":
     main()
